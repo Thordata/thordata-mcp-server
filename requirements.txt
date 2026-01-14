@@ -1,0 +1,5 @@
+mcp>=0.1.0
+thordata-sdk>=1.1.0
+python-dotenv>=1.0.0
+uvicorn>=0.27.0
+beautifulsoup4>=4.12.0
