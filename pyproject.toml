@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "thordata-mcp-server"
+version = "2.0.0"
+description = "Official MCP Server for Thordata. Connect LLMs to real-time web data."
+authors = [{name = "Thordata Developer Team", email = "support@thordata.com"}]
+requires-python = ">=3.10"
+dependencies = [
+    "mcp[cli]>=1.0.0",
+    "thordata-sdk>=1.2.0",
+    "pydantic-settings",
+    "markdownify",
+    "html2text",
+    "python-dotenv"
+]
+
+[project.scripts]
+thordata-mcp = "thordata_mcp.main:main"
