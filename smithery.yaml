@@ -1,0 +1,25 @@
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required:
+      - THORDATA_SCRAPER_TOKEN
+    properties:
+      THORDATA_SCRAPER_TOKEN:
+        type: string
+        description: "Thordata Scraper Token (Dashboard -> Account Settings)"
+      THORDATA_PUBLIC_TOKEN:
+        type: string
+        description: "Public Token (Required for Task/Media Tools)"
+      THORDATA_PUBLIC_KEY:
+        type: string
+        description: "Public Key (Required for Task/Media Tools)"
+  commandFunction: |-
+    (config) => ({
+      command: 'thordata-mcp',
+      env: {
+        THORDATA_SCRAPER_TOKEN: config.THORDATA_SCRAPER_TOKEN,
+        THORDATA_PUBLIC_TOKEN: config.THORDATA_PUBLIC_TOKEN,
+        THORDATA_PUBLIC_KEY: config.THORDATA_PUBLIC_KEY,
+      }
+    })

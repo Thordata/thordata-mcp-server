@@ -1470,12 +1470,12 @@ requires-dist = [
     { name = "mcp", extras = ["cli"], specifier = ">=1.0.0" },
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
-    { name = "thordata-sdk", specifier = ">=1.2.0" },
+    { name = "thordata-sdk", specifier = ">=1.3.0" },
 ]
 
 [[package]]
 name = "thordata-sdk"
-version = "1.2.0"
+version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },

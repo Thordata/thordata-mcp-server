@@ -73,6 +73,20 @@ This server exposes Thordata's AI infrastructure as callable tools for AI models
     mcp dev src/thordata_mcp/main.py
     ```
 
+### Option 3: Docker
+
+```bash
+docker build -t thordata-mcp .
+docker run -i --env-file .env thordata-mcp
+```
+
+### Option 4: Smithery (One-click Install)
+
+If you use [Smithery](https://smithery.ai/), you can install this server directly:
+
+```bash
+npx -y @smithery/cli install @thordata/thordata-mcp-server --client claude
+```
 ---
 
 ## 📄 License
