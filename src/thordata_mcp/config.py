@@ -1,26 +1,28 @@
-import os
-from pydantic_settings import BaseSettings
+from typing import List, Optional
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
-    # API Credentials
-    THORDATA_SCRAPER_TOKEN: str
-    THORDATA_PUBLIC_TOKEN: str | None = None
-    THORDATA_PUBLIC_KEY: str | None = None
+    # --- Authentication ---
+    # 允许为 None，由 .env 注入，运行时若缺失会抛错，但静态检查通过
+    THORDATA_SCRAPER_TOKEN: Optional[str] = Field(default=None)
+    THORDATA_PUBLIC_TOKEN: Optional[str] = Field(default=None)
+    THORDATA_PUBLIC_KEY: Optional[str] = Field(default=None)
 
-    # Spider ID Mappings (Based on your Dashboard)
-    # 你可以在 .env 中用 THORDATA_SPIDER_AMAZON=... 来覆盖这些默认值
-    SPIDER_AMAZON: str = "amazon_product_page" # 假设值，请核对
+    # --- Tool Configuration ---
+    ENABLED_TOOL_GROUPS: List[str] = ["web", "commerce", "media"]
+
+    # --- Spider ID Mappings ---
     SPIDER_GOOGLE_MAPS: str = "google_map-details_by-url"
+    SPIDER_AMAZON: str = "amazon_product_page"
     SPIDER_YOUTUBE: str = "youtube_video-post_by-url"
     SPIDER_INSTAGRAM: str = "instagram_post_page"
-    SPIDER_TIKTOK: str = "tiktok_post_page"
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
-try:
-    settings = Settings()
-except Exception as e:
-    # 允许在没有 .env 的情况下导入，但在运行时会报错
-    settings = None
+# 实例化
+settings = Settings()

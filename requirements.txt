@@ -1,0 +1,8 @@
+thordata-sdk>=1.3.0
+mcp[cli]
+html2text
+python-dotenv
+markdownify
+pydantic
+pydantic-settings
+httpx
