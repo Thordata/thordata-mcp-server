@@ -1,94 +1,137 @@
-# Thordata MCP Server
+# ⚡ ThorData MCP Server
 
 <div align="center">
 
 <img src="https://img.shields.io/badge/Thordata-Official-blue?style=for-the-badge" alt="Thordata Logo">
 
-**Official Model Context Protocol (MCP) Server for Thordata.**  
-*Give LLMs (Claude, Cursor) the ability to search the web, scrape data, and perform complex tasks.*
+**The Bridge between LLMs and the Real World.**
+*Connect Claude, Cursor, and AI Agents to ThorData's Residential Proxies & Scraping Infrastructure.*
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue)](https://www.python.org/)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![MCP Protocol](https://img.shields.io/badge/MCP-Compliant-green)](https://modelcontextprotocol.io/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-blue)](https://hub.docker.com/)
 
 </div>
 
 ---
 
-## ⚡ Capabilities
+## 📖 Overview
 
-This server exposes Thordata's AI infrastructure as callable tools for AI models:
+This MCP (Model Context Protocol) Server exposes **ThorData's** powerful data gathering capabilities as executable tools for AI models. It features a **Smart Routing** engine that automatically selects the best extraction strategy based on the target URL.
 
-*   **🔍 Search**: Real-time Google search (`google_search`).
-*   **📖 Read**: Turn any webpage (including JS-heavy SPAs) into clean Markdown (`read_url`).
-*   **🗺️ Maps**: Extract business details from Google Maps links (`get_google_maps_details`).
-*   **🎥 Media**: Retrieve YouTube/Instagram metadata (`get_youtube_video_info`).
+### ✨ Key Features
 
-## 🛠️ Installation
+*   **🧠 Smart Scrape**: One tool to rule them all. Automatically routes requests:
+    *   **E-Commerce**: Amazon (Product/Search/Reviews) -> Structured JSON.
+    *   **Social Media**: YouTube (Video/Channel), TikTok, Instagram -> Structured JSON.
+    *   **Maps**: Google Maps (Details/Reviews) -> Structured JSON.
+    *   **General Web**: Any other website -> Markdown (via Headless Browser).
+*   **🕷️ Browser Automation**: Generate valid WebSocket URLs to drive **Scraping Browsers** (Playwright/Puppeteer) directly from the LLM.
+*   **🔍 Real-time Search**: Google Search integration with anti-bot bypassing.
+*   **🛡️ Enterprise Grade**: Built on `thordata-sdk` with automatic retries, rotation, and error handling.
 
-### Option 1: For Claude Desktop (Recommended)
-
-1.  Clone this repository:
-    ```bash
-    git clone https://github.com/Thordata/thordata-mcp-server.git
-    cd thordata-mcp-server
-    ```
-
-2.  Install dependencies:
-    ```bash
-    # Recommend using uv for speed, or pip
-    pip install .
-    ```
-
-3.  Add to your `claude_desktop_config.json`:
-    *   **MacOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`
-    *   **Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
-
-    ```json
-    {
-      "mcpServers": {
-        "thordata": {
-          "command": "python", 
-          "args": ["-m", "thordata_mcp.main"],
-          "cwd": "/absolute/path/to/thordata-mcp-server",
-          "env": {
-            "THORDATA_SCRAPER_TOKEN": "your_token",
-            "THORDATA_PUBLIC_TOKEN": "your_public_token",
-            "THORDATA_PUBLIC_KEY": "your_public_key"
-          }
-        }
-      }
-    }
-    ```
-
-### Option 2: Local Development
-
-1.  Set up environment:
-    ```bash
-    cp .env.example .env
-    # Edit .env with your tokens
-    ```
-
-2.  Run the MCP Inspector:
-    ```bash
-    mcp dev src/thordata_mcp/main.py
-    ```
-
-### Option 3: Docker
-
-```bash
-docker build -t thordata-mcp .
-docker run -i --env-file .env thordata-mcp
-```
-
-### Option 4: Smithery (One-click Install)
-
-If you use [Smithery](https://smithery.ai/), you can install this server directly:
-
-```bash
-npx -y @smithery/cli install @thordata/thordata-mcp-server --client claude
-```
 ---
+
+## 🚀 Quick Start (Docker)
+
+The easiest way to run the server is via Docker. This ensures a consistent environment.
+
+### 1. Prerequisites
+Get your credentials from the [ThorData Dashboard](https://dashboard.thordata.com/):
+*   **Scraper Token**: For SERP & Web Unblocking.
+*   **Public Token/Key**: For Task Management (Video/Data scraping).
+*   **Residential Proxy User/Pass**: For Browser Automation.
+
+### 2. Run Container
+```bash
+# Run in interactive mode (Stdio)
+docker run -i --rm \
+  -e THORDATA_SCRAPER_TOKEN="your_token" \
+  -e THORDATA_PUBLIC_TOKEN="your_public_token" \
+  -e THORDATA_PUBLIC_KEY="your_public_key" \
+  -e THORDATA_RESIDENTIAL_USERNAME="your_proxy_user" \
+  -e THORDATA_RESIDENTIAL_PASSWORD="your_proxy_pass" \
+  thordata-mcp:0.1.0
+```
+
+### 3. Connect to Claude Desktop
+Add the following to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "thordata": {
+      "command": "docker",
+      "args": [
+        "run", "-i", "--rm",
+        "-e", "THORDATA_SCRAPER_TOKEN=...",
+        "-e", "THORDATA_PUBLIC_TOKEN=...",
+        "-e", "THORDATA_PUBLIC_KEY=...",
+        "thordata-mcp:0.1.0"
+      ]
+    }
+  }
+}
+```
+
+---
+
+## 🛠️ Local Development
+
+### Installation
+
+```bash
+git clone https://github.com/Thordata/thordata-mcp-server.git
+cd thordata-mcp-server
+
+# Install dependencies (requires uv or pip)
+pip install -e .
+```
+
+### Configuration
+Create a `.env` file:
+
+```ini
+THORDATA_SCRAPER_TOKEN=xxx
+THORDATA_PUBLIC_TOKEN=xxx
+THORDATA_PUBLIC_KEY=xxx
+THORDATA_BROWSER_USERNAME=xxx
+THORDATA_BROWSER_PASSWORD=xxx
+```
+
+### Debugging
+Run the industrial-grade acceptance suite to verify your environment:
+
+```bash
+python acceptance_test.py
+```
+
+---
+
+## 🧰 Available Tools
+
+| Tool Name | Description |
+| :--- | :--- |
+| **`smart_scrape`** | **The Core Tool.** Input *any* URL. It auto-detects Amazon/YouTube/Maps/TikTok and returns structured JSON. For generic sites, it returns Markdown. |
+| **`google_search`** | Perform Google searches using ThorData's SERP API. |
+| **`read_url`** | Convert a webpage to LLM-friendly Markdown (General purpose). |
+| **`get_scraping_browser_url`** | Generates a secure `wss://` endpoint for Playwright/Puppeteer sessions. |
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+graph LR
+    User[AI Client] -->|JSON-RPC| MCP[MCP Server]
+    MCP -->|Smart Router| SDK[ThorData Python SDK]
+    SDK -->|Route 1| SERP[SERP API]
+    SDK -->|Route 2| Universal[Web Unlocker]
+    SDK -->|Route 3| Tasks[Web Scraper API]
+    Tasks -->|Async| Cloud[ThorData Cloud]
+    Cloud -->|JSON| MCP
+```
 
 ## 📄 License
 
-MIT License.
+MIT.

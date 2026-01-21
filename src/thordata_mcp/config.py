@@ -4,19 +4,26 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # --- Authentication ---
-    # 允许为 None，由 .env 注入，运行时若缺失会抛错，但静态检查通过
     THORDATA_SCRAPER_TOKEN: Optional[str] = Field(default=None)
     THORDATA_PUBLIC_TOKEN: Optional[str] = Field(default=None)
     THORDATA_PUBLIC_KEY: Optional[str] = Field(default=None)
 
-    # --- Tool Configuration ---
-    ENABLED_TOOL_GROUPS: List[str] = ["web", "commerce", "media"]
+    # --- Proxy / Browser Credentials ---
+    THORDATA_BROWSER_USERNAME: Optional[str] = Field(default=None)
+    THORDATA_BROWSER_PASSWORD: Optional[str] = Field(default=None)
+    THORDATA_RESIDENTIAL_USERNAME: Optional[str] = Field(default=None)
+    THORDATA_RESIDENTIAL_PASSWORD: Optional[str] = Field(default=None)
 
-    # --- Spider ID Mappings ---
+    # --- Tool Configuration ---
+    ENABLED_TOOL_GROUPS: List[str] = ["web", "commerce", "media", "browser"]
+
+    # --- Spider ID Mappings (Reference) ---
+    # These match the keys in SPIDER_REGISTRY (see thordata_mcp/registry.py)
     SPIDER_GOOGLE_MAPS: str = "google_map-details_by-url"
-    SPIDER_AMAZON: str = "amazon_product_page"
-    SPIDER_YOUTUBE: str = "youtube_video-post_by-url"
-    SPIDER_INSTAGRAM: str = "instagram_post_page"
+    SPIDER_AMAZON: str = "amazon_global-product_by-url" 
+    SPIDER_YOUTUBE: str = "youtube_video_by-url"
+    SPIDER_TIKTOK: str = "tiktok_posts_by-url"
+    SPIDER_LINKEDIN: str = "linkedin_job_listings_information_by-job-listing-url"
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -24,5 +31,4 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
-# 实例化
 settings = Settings()
