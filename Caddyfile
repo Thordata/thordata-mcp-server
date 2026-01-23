@@ -1,0 +1,19 @@
+{
+    # 全局配置
+    email support@your-domain.com
+}
+
+your-domain.com {
+    # 1. 安全认证：检查请求头 X-MCP-Token
+    # 只有 Client 发送了这个 Header 才能访问
+    @auth {
+        not header X-MCP-Token "your-secret-token-123456"
+    }
+    respond @auth "Unauthorized" 401
+
+    # 2. 反向代理到 MCP Server
+    reverse_proxy thordata-mcp:8000 {
+        # 针对 SSE 的优化配置
+        flush_interval -1
+    }
+}

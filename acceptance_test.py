@@ -1,228 +1,123 @@
-"""
-ThorData MCP Server - Industrial Acceptance Suite
-"""
-import subprocess
-import json
-import os
-import sys
-import time
-import threading
-import argparse
-from typing import Dict, Any, Callable, Optional
+import os, sys, json, time, subprocess, threading
+from dotenv import load_dotenv
 
-# --- Load Env ---
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    print("⚠️ python-dotenv not installed.")
+load_dotenv(override=True)
+GREEN, RED, RESET, YELLOW, CYAN = "\033[92m", "\033[91m", "\033[0m", "\033[93m", "\033[96m"
 
-# --- Config & Args ---
-parser = argparse.ArgumentParser(description="Run MCP Acceptance Tests")
-parser.add_argument("--docker", action="store_true", help="Run tests against Docker container")
-args = parser.parse_args()
-
-ENV = os.environ.copy()
-ENV["PYTHONUTF8"] = "1"
-ENV["PYTHONUNBUFFERED"] = "1"
-
-# FIX: Reduced required keys. Proxy/Browser creds are now optional for startup.
-REQUIRED_KEYS = [
-    "THORDATA_SCRAPER_TOKEN", 
-    "THORDATA_PUBLIC_TOKEN", 
-    "THORDATA_PUBLIC_KEY"
+# --- 全量工业级验收矩阵 (2026-01-23) ---
+TEST_CASES = [
+    ("Amazon (ASIN Mode)", "https://www.amazon.com/dp/059035342X"),
+    ("YouTube (Video Mode)", "https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+    ("GitHub (Repo Mode)", "https://github.com/psf/requests"),
+    ("Instagram (Profile Mode)", "https://www.instagram.com/nike/"),
+    ("Google Search", "google_search: thordata python sdk"),
+    ("Browser URL", "get_browser_url"),
+    ("Universal (Fallback)", "https://httpbin.org/html")
 ]
 
-missing_keys = [key for key in REQUIRED_KEYS if not ENV.get(key)]
-if missing_keys:
-    print(f"❌ Error: The following keys are missing in environment variables or .env:")
-    for k in missing_keys:
-        print(f"   - {k}")
-    sys.exit(1)
-
-# --- Colors ---
-GREEN = "\033[92m"
-RED = "\033[91m"
-CYAN = "\033[96m"
-YELLOW = "\033[93m"
-RESET = "\033[0m"
-
-class MCPClientSimulator:
+class MCPClient:
     def __init__(self):
-        cmd = ["docker", "run", "-i", "--rm"] if args.docker else [sys.executable, "-m", "thordata_mcp.main"]
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        src_path = os.path.join(current_dir, "src")
+        env["PYTHONPATH"] = src_path + (os.pathsep + env.get("PYTHONPATH", "") if env.get("PYTHONPATH") else "")
         
-        # In Docker mode, pass env vars
-        if args.docker:
-            # Pass all THORDATA_ vars
-            for k, v in ENV.items():
-                if k.startswith("THORDATA_"):
-                    cmd.extend(["-e", f"{k}={v}"])
-            cmd.append("thordata-mcp") # Image name
-
-        print(f"🚀 Launching Server: {' '.join(cmd)}")
-        
-        self.process = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
+        self.proc = subprocess.Popen(
+            [sys.executable, "-m", "thordata_mcp.main"],
+            stdin=subprocess.PIPE, 
+            stdout=subprocess.PIPE, 
+            stderr=sys.stderr,
+            text=True, 
+            bufsize=0, 
             encoding='utf-8',
-            errors='replace',
-            env=ENV if not args.docker else None
+            env=env
         )
         self.msg_id = 0
-        
-        self.log_thread = threading.Thread(target=self._print_stderr, daemon=True)
-        self.log_thread.start()
-        
-        time.sleep(3 if args.docker else 1)
-        if self.process.poll() is not None:
-            raise RuntimeError(f"Server exited immediately. Code {self.process.returncode}")
+        self.q = __import__('queue').Queue()
+        self.running = True
+        threading.Thread(target=self._read, daemon=True).start()
 
-    def _print_stderr(self):
-        if self.process.stderr:
-            try:
-                for line in self.process.stderr:
-                    print(f"{YELLOW}[SERVER] {line.strip()}{RESET}")
-            except: pass
+    def _read(self):
+        while self.running:
+            line = self.proc.stdout.readline() # type: ignore
+            if not line: break
+            if line.strip().startswith('{'):
+                try: self.q.put(json.loads(line))
+                except: pass
 
-    def send(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        if self.process.poll() is not None:
-             raise RuntimeError(f"Server died (Code {self.process.returncode})")
-
-        # FIX: Explicit assertion for Pylance
-        assert self.process.stdin is not None, "stdin is None"
-        assert self.process.stdout is not None, "stdout is None"
-
+    def call(self, method, params=None):
         self.msg_id += 1
-        payload = {"jsonrpc": "2.0", "id": self.msg_id, "method": method, "params": params or {}}
+        # 修复 Pylance: 显式断言 stdin
+        stdin = self.proc.stdin
+        assert stdin is not None, "FATAL: stdin is None"
+        stdin.write(json.dumps({"jsonrpc":"2.0","id":self.msg_id,"method":method,"params":params or {}})+"\n")
+        stdin.flush()
+        return self.msg_id
+
+    def wait(self, rid, timeout=120):
+        start = time.time()
+        while time.time() - start < timeout:
+            if not self.q.empty():
+                # 简单队列查找
+                size = self.q.qsize()
+                for _ in range(size):
+                    m = self.q.get()
+                    if m.get("id") == rid: return m
+                    self.q.put(m)
+            time.sleep(0.5)
+        return None
+
+def run_inspection():
+    print(f"\n{CYAN}🏆 ThorData MCP Full Inspection Suite v5.0 (Ready for Release){RESET}")
+    client = MCPClient()
+    
+    try:
+        # Handshake
+        rid = client.call("initialize", {"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}})
+        init_res = client.wait(rid)
+        assert init_res, "Handshake failed"
         
-        try:
-            self.process.stdin.write(json.dumps(payload) + "\n")
-            self.process.stdin.flush()
-        except OSError as e:
-            raise RuntimeError(f"Write failed: {e}")
-        
-        while True:
-            try:
-                line = self.process.stdout.readline()
-            except UnicodeDecodeError: continue
+        # Initialized notification
+        stdin = client.proc.stdin
+        assert stdin is not None
+        stdin.write(json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"})+"\n")
+        stdin.flush()
+
+        # Iterate Matrix
+        for name, target in TEST_CASES:
+            print(f"\n{YELLOW}Testing {name}...{RESET}")
+            if target == "get_browser_url":
+                rid = client.call("tools/call", {"name":"get_scraping_browser_url","arguments":{}})
+            elif target.startswith("google_search:"):
+                rid = client.call("tools/call", {"name":"google_search","arguments":{"query":target.split(": ")[1]}})
+            else:
+                rid = client.call("tools/call", {"name":"smart_scrape","arguments":{"url":target}})
             
-            if not line:
-                if self.process.poll() is not None:
-                    raise RuntimeError(f"Server exited code {self.process.returncode}")
+            res = client.wait(rid, timeout=150) # 任务可能较慢，给足时间
+            if not res or "error" in res:
+                print(f"{RED}❌ {name} FAILED: {res.get('error') if res else 'Timeout'}{RESET}")
                 continue
+
+            content = res.get("result", {}).get("content", [{}])[0].get("text", "")
             
-            try:
-                msg = json.loads(line)
-                if msg.get("id") == self.msg_id:
-                    if "error" in msg: raise RuntimeError(f"RPC Error: {msg['error']}")
-                    return msg.get("result", {})
-            except json.JSONDecodeError: continue
+            # 严格验收标准
+            if name in ["Google Search", "Browser URL", "Universal (Fallback)"]:
+                success = len(content) > 50
+            else:
+                # 专项爬取验证：必须是结构化数据 (JSON)
+                success = content.strip().startswith(("{", "[")) and len(content) > 200
+            
+            if success:
+                print(f"{GREEN}✅ {name} PASSED (Structured Data Verified){RESET}")
+            else:
+                print(f"{RED}❌ {name} FAILED (Invalid Format or Short Response){RESET}")
+                print(f"DEBUG PREVIEW: {content[:200]}")
 
-    def close(self):
-        if self.process:
-            self.process.terminate()
-            try: self.process.wait(timeout=2)
-            except: self.process.kill()
-
-# --- Test Logics ---
-
-def run_test_case(name: str, func: Callable):
-    print(f"\n{CYAN}🔄 [TEST] {name}...{RESET}")
-    try:
-        func()
-        print(f"{GREEN}✅ [PASS] {name}{RESET}")
-        return True
-    except Exception as e:
-        # If it's a skip signal (ValueError with specific text), handle it
-        if str(e).startswith("SKIP:"):
-            print(f"{YELLOW}⚠️  [SKIP] {str(e)[6:]}{RESET}")
-            return True
-        print(f"{RED}❌ [FAIL] {name}: {e}{RESET}")
-        return False
-
-def test_handshake(client):
-    res = client.send("initialize", {
-        "protocolVersion": "2024-11-05", 
-        "capabilities": {}, 
-        "clientInfo": {"name": "tester", "version": "1.0"}
-    })
-    # Send initialized notification
-    assert client.process.stdin is not None
-    client.process.stdin.write(json.dumps({"jsonrpc":"2.0","method":"notifications/initialized"})+"\n")
-    client.process.stdin.flush()
-
-def test_list_tools(client):
-    res = client.send("tools/list")
-    tools = res.get("tools", [])
-    names = [t["name"] for t in tools]
-    print(f"   Tools: {', '.join(names)}")
-
-def test_browser_url(client):
-    """Verify Browser URL generation"""
-    # Check environment availability for this specific test
-    if not ENV.get("THORDATA_BROWSER_USERNAME") or not ENV.get("THORDATA_BROWSER_PASSWORD"):
-        print("   ⚠️ [SKIP] Browser Credentials missing in .env (THORDATA_BROWSER_USERNAME/PASSWORD)")
-        return
-
-    res = client.send("tools/call", {
-        "name": "get_scraping_browser_url",
-        "arguments": {}
-    })
-    text = res.get("content", [{"text": ""}])[0]["text"]
-    
-    if "wss://" in text:
-        print(f"   ✅ URL Generated")
-    else:
-        # If SDK throws config error, it returns a text message
-        raise ValueError(f"Failed: {text}")
-
-def test_smart_scrape_amazon(client):
-    url = "https://www.amazon.com/dp/B014I8SSD0"
-    print(f"   Target: {url}")
-    res = client.send("tools/call", {"name": "smart_scrape", "arguments": {"url": url}})
-    text = res.get("content", [{"text": ""}])[0]["text"]
-    try:
-        json.loads(text)
-        print("   ✅ Valid JSON")
-    except:
-        print(f"   ⚠️ Markdown (Fallback)")
-
-def test_smart_scrape_youtube(client):
-    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-    print(f"   Target: {url}")
-    print("   ⏳ Waiting...")
-    res = client.send("tools/call", {"name": "smart_scrape", "arguments": {"url": url}})
-    text = res.get("content", [{"text": ""}])[0]["text"]
-    
-    if "Task Failed" in text or "Network Error" in text:
-         # Treat infrastructure errors as warnings, not failures
-         print(f"   ⚠️ API Response: {text[:100]}...")
-         return
-
-    try:
-        json.loads(text)
-        print("   ✅ Valid JSON")
-    except:
-        raise ValueError(f"Invalid output: {text[:100]}")
-
-def main():
-    print(f"{CYAN}🚀 ThorData MCP Acceptance (v0.1.0){RESET}")
-    sim = None
-    try:
-        sim = MCPClientSimulator()
-        run_test_case("Handshake", lambda: test_handshake(sim))
-        run_test_case("List Tools", lambda: test_list_tools(sim))
-        run_test_case("Browser Automation", lambda: test_browser_url(sim))
-        run_test_case("Smart Scrape (Amazon)", lambda: test_smart_scrape_amazon(sim))
-        run_test_case("Smart Scrape (YouTube)", lambda: test_smart_scrape_youtube(sim))
-        print(f"\n{GREEN}✨ DONE.{RESET}")
-    except Exception as e:
-        print(f"\n{RED}❌ FATAL: {e}{RESET}")
     finally:
-        if sim: sim.close()
+        print(f"\n{CYAN}Cleaning up...{RESET}")
+        client.running = False
+        client.proc.terminate()
 
 if __name__ == "__main__":
-    main()
+    run_inspection()

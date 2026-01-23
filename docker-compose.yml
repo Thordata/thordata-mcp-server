@@ -1,0 +1,35 @@
+services:
+  thordata-mcp:
+    build: .
+    container_name: thordata-mcp
+    restart: always
+    environment:
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+      # 将你的 .env 变量填入或通过 --env-file 传递
+      - THORDATA_SCRAPER_TOKEN=${THORDATA_SCRAPER_TOKEN}
+      - THORDATA_PUBLIC_TOKEN=${THORDATA_PUBLIC_TOKEN}
+      - THORDATA_PUBLIC_KEY=${THORDATA_PUBLIC_KEY}
+      - THORDATA_RESIDENTIAL_USERNAME=${THORDATA_RESIDENTIAL_USERNAME}
+      - THORDATA_RESIDENTIAL_PASSWORD=${THORDATA_RESIDENTIAL_PASSWORD}
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:latest
+    container_name: mcp-gateway
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - thordata-mcp
+
+volumes:
+  caddy_data:
+  caddy_config:

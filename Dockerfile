@@ -8,17 +8,17 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-# 安装 git (如果 mcp 依赖需要 git) 和基础工具
+# 安装基础工具 (git 用于某些依赖，curl 用于调试)
 RUN apt-get update && apt-get install -y --no-install-recommends git curl && rm -rf /var/lib/apt/lists/*
 
 # 复制项目文件
 COPY pyproject.toml .
 COPY src/ src/
 
-# 安装项目 (自动从 PyPI 拉取 thordata-sdk)
+# 关键：直接安装当前目录 (pip 会自动去 PyPI 拉取 thordata-sdk>=1.5.0)
 RUN pip install --no-cache-dir .
 
-# 创建非 root 用户 (安全)
+# 创建非 root 用户 (安全最佳实践)
 RUN useradd -m appuser && chown -R appuser /app
 USER appuser
 
