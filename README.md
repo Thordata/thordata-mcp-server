@@ -1,41 +1,109 @@
-# ⚡ ThorData MCP Server (v0.2.0)
+# Thordata MCP Server (v0.3.0)
 
-**The most powerful bridge between AI Agents and real-time structured web data.**
+Official MCP Server for Thordata.
 
-Built with the latest **ThorData Python SDK v1.5.0**, this server allows LLMs (Claude, Cursor, GPT-4) to perform high-fidelity scraping, video data extraction, and real-time search without being blocked.
+This repository exposes Thordata capabilities as MCP tools with:
+- Clean tool naming
+- Structured JSON outputs
+- A simple, **non-MCP debug HTTP API** for fast, deterministic verification
 
-## ✨ Why this server is different?
+Baseline: **thordata-python-sdk v1.6.0**
 
-- **Smart Routing Engine**: Automatically detects URL types (Amazon, YouTube, etc.) and routes them to 34+ specialized high-speed scrapers.
-- **Deep JSON Extraction**: Returns raw, structured data for products, social media posts, and videos instead of generic web snapshots.
-- **Industrial Stability**: Built-in polling, retry logic, and fallback mechanisms.
-- **Protocol Verified**: 100% success rate in industrial-grade acceptance testing across all categories.
+## Tool groups
 
-## 🧰 Specialized Tools (34+ Built-in)
+- **SERP API**
+  - `serp.search`
 
-The `smart_scrape` tool automatically utilizes ThorData specialized engines for:
+- **Web Unlocker (Universal API)**
+  - `universal.fetch`
+  - `universal.fetch_markdown`
 
-| Platform | Capabilities |
-| :--- | :--- |
-| **Amazon** | Product Details (ASIN), Reviews, Seller Info, Search Results |
-| **YouTube** | Video Metadata (JSON), Subtitles/Transcripts, Comments, Profiles |
-| **Social** | TikTok Video/Profile, Instagram Reels/Profiles, X/Twitter Posts, Reddit |
-| **Professional** | LinkedIn Job Listings & Company Information |
-| **Maps** | Google Maps Place Details & Customer Reviews |
-| **General** | Clean Markdown fallback for any other website |
+- **Browser API**
+  - `browser.get_connection_url`
+  - `browser.screenshot`
 
-## 🚀 Quick Start
+- **Proxy Network**
+  - `proxy.request.get`
+  - `proxy.request.post`
 
-### 1. Build and Run (Docker)
-```bash
-docker build -t thordata-mcp:0.2.0 .
-winpty docker run -i --rm --env-file .env thordata-mcp:0.2.0
+- **Web Scraper Tasks API (120+ tools)**
+  - `tasks.list`
+  - `tasks.run`
+  - `tasks.status`
+  - `tasks.wait`
+  - `tasks.result`
+
+- **Control plane**
+  - `account.get_usage_statistics`
+  - `account.traffic_balance`
+  - `account.wallet_balance`
+  - `whitelist.list_ips` / `whitelist.add_ip` / `whitelist.delete_ip`
+  - `proxy_users.list` / `proxy_users.create` / `proxy_users.update` / `proxy_users.delete`
+  - `locations.countries` / `locations.states` / `locations.cities` / `locations.asn`
+  - `unlimited.list_servers` / `unlimited.get_server_monitor` / `unlimited.bind_user` / `unlimited.unbind_user`
+
+## Environment
+
+Create a `.env` file (do not commit):
+
+```env
+THORDATA_SCRAPER_TOKEN=...
+THORDATA_PUBLIC_TOKEN=...
+THORDATA_PUBLIC_KEY=...
+
+THORDATA_BROWSER_USERNAME=...
+THORDATA_BROWSER_PASSWORD=...
+
+THORDATA_RESIDENTIAL_USERNAME=...
+THORDATA_RESIDENTIAL_PASSWORD=...
 ```
 
-### 2. Connect to Cursor
-- **Type**: `Command`
-- **Command**: `docker`
-- **Args**: `run -i --rm --env-file D:/your/path/.env thordata-mcp:0.2.0`
+## Quick start (local, debug API)
 
-## 📄 License
-MIT.
+### 1) Start server
+
+```bash
+cd /d/thordata_work/thordata-mcp-server
+python -m thordata_mcp.main --transport streamable-http
+```
+
+### 2) List tools
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/debug/tools/list -d '{}' | head
+```
+
+### 3) Call a tool
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/debug/tools/call \
+  -H "Content-Type: application/json" \
+  -d '{"name":"serp.search","input":{"query":"thordata proxy"}}' \
+  | python -m json.tool | head
+```
+
+## Docker
+
+### Build
+
+```bash
+docker build -t thordata-mcp:0.3.0 .
+```
+
+### Run
+
+```bash
+docker run --rm -p 8000:8000 --env-file .env thordata-mcp:0.3.0 \
+  python -m thordata_mcp.main --transport streamable-http --host 0.0.0.0 --port 8000
+```
+
+### Smoke test
+
+```bash
+curl -s -X POST http://127.0.0.1:8000/debug/tools/list -d '{}' | head
+```
+
+## Notes
+
+- The debug API is for local verification only. It bypasses MCP protocol handshake and session handling.
+- For MCP hosts (Cursor / Claude Desktop), use `stdio` transport.

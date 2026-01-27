@@ -7,7 +7,7 @@ services:
       - MCP_TRANSPORT=sse
       - MCP_HOST=0.0.0.0
       - MCP_PORT=8000
-      # 将你的 .env 变量填入或通过 --env-file 传递
+      # Provide credentials via environment or --env-file
       - THORDATA_SCRAPER_TOKEN=${THORDATA_SCRAPER_TOKEN}
       - THORDATA_PUBLIC_TOKEN=${THORDATA_PUBLIC_TOKEN}
       - THORDATA_PUBLIC_KEY=${THORDATA_PUBLIC_KEY}

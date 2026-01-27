@@ -1,9 +1,0 @@
-thordata-sdk>=1.5.0
-mcp[cli]
-html2text
-python-dotenv
-markdownify
-pydantic
-pydantic-settings
-httpx
-uvicorn

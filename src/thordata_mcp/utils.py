@@ -5,42 +5,96 @@ import html2text
 from markdownify import markdownify as md
 from thordata import ThordataAPIError, ThordataConfigError, ThordataNetworkError
 
-# 设置日志
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("thordata_mcp")
+
+
+def ok_response(*, tool: str, input: dict[str, Any], output: Any) -> dict[str, Any]:
+    return {"ok": True, "tool": tool, "input": input, "output": output}
+
+
+def error_response(
+    *,
+    tool: str,
+    input: dict[str, Any],
+    error_type: str,
+    message: str,
+    details: Any | None = None,
+) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "tool": tool,
+        "input": input,
+        "error": {"type": error_type, "message": message, "details": details},
+    }
 
 def handle_mcp_errors(func: Callable) -> Callable:
     """
-    Decorator to catch SDK errors and return LLM-friendly error messages.
+    Decorator to catch SDK errors and return structured, LLM-friendly dict outputs.
     """
     @functools.wraps(func)
-    async def wrapper(*args, **kwargs) -> str:
+    async def wrapper(*args, **kwargs) -> dict[str, Any]:
         try:
             return await func(*args, **kwargs)
         except ThordataConfigError as e:
-            logger.error(f"Config Error in {func.__name__}: {e}")
-            return f"❌ Configuration Error: Missing API Tokens. Please check your .env file. ({str(e)})"
+            logger.error("Config error in %s: %s", func.__name__, e)
+            tool = func.__name__
+            safe_input = {k: v for k, v in kwargs.items() if k != "ctx"}
+            return error_response(
+                tool=tool,
+                input=safe_input,
+                error_type="config_error",
+                message="Missing or invalid credentials. Please check your .env configuration.",
+                details=str(e),
+            )
         except ThordataAPIError as e:
-            # 这是一个 API 业务层面的错误 (如 Task Failed, 余额不足)
-            logger.error(f"API Error in {func.__name__}: {e}")
-            msg = e.message
-            if e.payload and isinstance(e.payload, dict):
-                msg = e.payload.get('msg', msg)
-            return f"❌ API Task Failed: {msg} (Code: {e.code})"
+            logger.error("API error in %s: %s", func.__name__, e)
+            tool = func.__name__
+            safe_input = {k: v for k, v in kwargs.items() if k != "ctx"}
+            msg = getattr(e, "message", str(e))
+            payload = getattr(e, "payload", None)
+            if isinstance(payload, dict):
+                msg = payload.get("msg", msg)
+            return error_response(
+                tool=tool,
+                input=safe_input,
+                error_type="api_error",
+                message=msg,
+                details={"code": getattr(e, "code", None), "payload": payload},
+            )
         except ThordataNetworkError as e:
-            # 这是真正的网络错误 (连接超时, DNS失败)
-            # 但要注意：SDK 的 run_task 抛出 ThordataNetworkError 包含了 "Task failed with status: ..."
-            # 我们需要区分这两种情况
             err_str = str(e)
             if "Task" in err_str and "failed with status" in err_str:
-                 logger.error(f"Task Failed Logic: {e}")
-                 return f"❌ Scraping Task Failed: The target site may have blocked the request or the content is unavailable. ({err_str})"
+                logger.error("Task failure in %s: %s", func.__name__, e)
+                tool = func.__name__
+                safe_input = {k: v for k, v in kwargs.items() if k != "ctx"}
+                return error_response(
+                    tool=tool,
+                    input=safe_input,
+                    error_type="task_failed",
+                    message="Scraping task failed. The target site may have blocked the request or the content is unavailable.",
+                    details=err_str,
+                )
             
-            logger.error(f"Network Error in {func.__name__}: {e}")
-            return f"❌ Network Connection Error: Could not reach ThorData servers. Please retry."
+            logger.error("Network error in %s: %s", func.__name__, e)
+            tool = func.__name__
+            safe_input = {k: v for k, v in kwargs.items() if k != "ctx"}
+            return error_response(
+                tool=tool,
+                input=safe_input,
+                error_type="network_error",
+                message="Network error: could not reach Thordata services. Please retry.",
+                details=err_str,
+            )
         except Exception as e:
-            logger.exception(f"Unexpected Error in {func.__name__}")
-            return f"❌ Unexpected Error: {str(e)}"
+            logger.exception("Unexpected error in %s", func.__name__)
+            tool = func.__name__
+            safe_input = {k: v for k, v in kwargs.items() if k != "ctx"}
+            return error_response(
+                tool=tool,
+                input=safe_input,
+                error_type="unexpected_error",
+                message=str(e),
+            )
     return wrapper
 
 def html_to_markdown_clean(html: str) -> str:
