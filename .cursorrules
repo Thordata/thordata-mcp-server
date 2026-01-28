@@ -1,0 +1,23 @@
+# Thordata MCP Server - Cursor IDE Rules
+
+## Code Style
+- Use Python 3.10+ type hints
+- Follow PEP 8 style guide
+- Use async/await for all I/O operations
+- All code and comments must be in English (no Chinese characters)
+
+## Architecture
+- Tools are organized in structured namespaces: `serp.*`, `universal.*`, `browser.*`, `tasks.*`, `proxy.*`
+- High-level entrypoints: `search`, `scrape`, `task_run` (for LLM convenience)
+- All tools must use `@handle_mcp_errors` decorator
+- All responses must use `ok_response()` or `error_response()` from utils
+
+## Error Handling
+- Use centralized error handling via `handle_mcp_errors` decorator
+- Return structured error responses with codes (E1001, E2001, etc.)
+- Never raise exceptions directly from tool functions
+
+## Testing
+- Test all four major scraping categories: SERP, Web Unlocker, Browser, Web Scraper Tasks
+- Ensure 100% coverage of 120+ Web Scraper Tasks via `tasks.*` tools
+- Verify batch operations work correctly (SERP batch, Universal batch)

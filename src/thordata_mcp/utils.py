@@ -4,7 +4,7 @@ from __future__ import annotations
 import functools
 import html2text
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from markdownify import markdownify as md
 from thordata import (
@@ -14,6 +14,25 @@ from thordata import (
 )
 
 logger = logging.getLogger("thordata_mcp")
+
+
+# ---------------------------------------------------------------------------
+# Safe Context helpers (for HTTP mode compatibility)
+# ---------------------------------------------------------------------------
+
+async def safe_ctx_info(ctx: Optional[Any], message: str) -> None:
+    """Safely call ctx.info() if context is available and valid.
+    
+    In HTTP mode, ctx may exist but not be a valid MCP Context,
+    so we wrap the call in try-except to avoid errors.
+    """
+    if ctx is None:
+        return
+    try:
+        await ctx.info(message)
+    except (ValueError, AttributeError):
+        # Context not available (e.g., HTTP mode) - silently skip
+        pass
 
 
 # ---------------------------------------------------------------------------

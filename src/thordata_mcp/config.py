@@ -1,34 +1,38 @@
-from typing import List, Optional
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
+from functools import lru_cache
+from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
-    # --- Authentication ---
-    THORDATA_SCRAPER_TOKEN: Optional[str] = Field(default=None)
-    THORDATA_PUBLIC_TOKEN: Optional[str] = Field(default=None)
-    THORDATA_PUBLIC_KEY: Optional[str] = Field(default=None)
+    """Environment-driven configuration for the MCP server."""
 
-    # --- Proxy / Browser Credentials ---
-    THORDATA_BROWSER_USERNAME: Optional[str] = Field(default=None)
-    THORDATA_BROWSER_PASSWORD: Optional[str] = Field(default=None)
-    THORDATA_RESIDENTIAL_USERNAME: Optional[str] = Field(default=None)
-    THORDATA_RESIDENTIAL_PASSWORD: Optional[str] = Field(default=None)
+    # Thordata credentials
+    THORDATA_SCRAPER_TOKEN: str | None = None
+    THORDATA_PUBLIC_TOKEN: str | None = None
+    THORDATA_PUBLIC_KEY: str | None = None
+    
+    # Optional browser-specific credentials (scraping browser)
+    THORDATA_BROWSER_USERNAME: str | None = None
+    THORDATA_BROWSER_PASSWORD: str | None = None
+    
+    # Optional residential proxy credentials (for proxy network tools)
+    THORDATA_RESIDENTIAL_USERNAME: str | None = None
+    THORDATA_RESIDENTIAL_PASSWORD: str | None = None
+    
+    # Logging
+    LOG_LEVEL: str = "INFO"
+    
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
 
-    # --- Tool Configuration ---
-    ENABLED_TOOL_GROUPS: List[str] = ["web", "commerce", "media", "browser"]
 
-    # --- Spider ID Mappings (Reference) ---
-    # These match the keys in SPIDER_REGISTRY (see thordata_mcp/registry.py)
-    SPIDER_GOOGLE_MAPS: str = "google_map-details_by-url"
-    SPIDER_AMAZON: str = "amazon_global-product_by-url" 
-    SPIDER_YOUTUBE: str = "youtube_video_by-url"
-    SPIDER_TIKTOK: str = "tiktok_posts_by-url"
-    SPIDER_LINKEDIN: str = "linkedin_job_listings_information_by-job-listing-url"
+@lru_cache
+def get_settings() -> Settings:
+    """Return a cached Settings instance."""
+    return Settings()
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        extra="ignore"
-    )
 
-settings = Settings()
+# Convenience instance for modules that import `settings` directly.
+settings: Settings = get_settings()
+

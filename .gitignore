@@ -7,3 +7,4 @@ venv/
 .vscode/
 *.egg-info/
 dist/
+!.env.example

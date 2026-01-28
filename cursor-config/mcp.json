@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "thordata": {
+      "command": "python",
+      "args": [
+        "-m",
+        "thordata_mcp.main",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "THORDATA_SCRAPER_TOKEN": "${THORDATA_SCRAPER_TOKEN}",
+        "THORDATA_PUBLIC_TOKEN": "${THORDATA_PUBLIC_TOKEN}",
+        "THORDATA_PUBLIC_KEY": "${THORDATA_PUBLIC_KEY}",
+        "THORDATA_BROWSER_USERNAME": "${THORDATA_BROWSER_USERNAME}",
+        "THORDATA_BROWSER_PASSWORD": "${THORDATA_BROWSER_PASSWORD}"
+      }
+    }
+  }
+}

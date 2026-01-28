@@ -55,6 +55,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print registered tool names to stderr and exit.",
     )
+    parser.add_argument(
+        "--expose-all-tools",
+        action="store_true",
+        default=False,
+        help="Expose all tools (default: only expose 6 core tools: search, scrape, task_run, browser.navigate, browser.snapshot, tasks.list).",
+    )
     return parser
 
 
@@ -67,12 +73,15 @@ def main(argv: list[str] | None = None) -> None:
     # Adjust log level early
     logging.getLogger().setLevel(args.log_level.upper())
 
+    # Create MCP server instance
     mcp = FastMCP("Thordata")
+
     # Override host/port before run (only affects network transports)
     mcp.settings.host = args.host
     mcp.settings.port = args.port
 
-    register_all(mcp)
+    # Register all tools (synchronously wraps async registrations)
+    register_all(mcp, expose_all=args.expose_all_tools)
 
     # Inject debug routes if using HTTP transport and not disabled
     if args.transport == "streamable-http" and not args.no_debug_api:
