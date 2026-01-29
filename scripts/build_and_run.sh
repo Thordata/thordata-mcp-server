@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE="thordata-mcp:0.4.0"
+IMAGE="thordata-mcp:0.4.1"
 CONTAINER_NAME="thordata-mcp-dev"
 PORT="${PORT:-8000}"
 

@@ -1,7 +1,8 @@
 from mcp.server.fastmcp import FastMCP
 
-# High-level entrypoints (simplified API for LLMs)
-from thordata_mcp.tools.entrypoints import register as register_entrypoints
+# High-level product APIs (compact by default)
+from thordata_mcp.tools.product import register as register_product_tools
+from thordata_mcp.tools.product_compact import register as register_compact_tools
 
 # Data-plane tools (structured namespace: serp.*, universal.*, browser.*, tasks.*, proxy.*)
 from thordata_mcp.tools.data import serp as data_serp
@@ -22,22 +23,20 @@ def register_all(mcp: FastMCP, expose_all: bool = False) -> None:
     """Synchronously register all tool groups with the MCP server instance.
     
     Architecture:
-    - High-level entrypoints: search, scrape, task_run (for LLM convenience)
-    - Data-plane tools: serp.*, universal.*, browser.*, tasks.*, proxy.* (structured namespace)
-    - Control-plane tools: account.*, whitelist.*, proxy_users.*, unlimited.*, locations.*
+    - Product-line tools: serp.*, unlocker.*, web_scraper.*, smart_scrape (LLM-friendly)
+    - Data-plane tools: serp.*, universal.*, browser.*, tasks.*, proxy.* (advanced/structured namespace)
+    - Control-plane tools: account.*, whitelist.*, proxy_users.*, unlimited.*, locations.* (admin/ops)
     
     Args:
-        expose_all: If False (default), only expose 6 core tools:
-                    search, scrape, task_run, browser.navigate, browser.snapshot, tasks.list
-                    If True, expose all 43 tools.
+        expose_all: If False (default), expose only product-line tools and minimal browser automation.
+                    If True, additionally expose advanced data-plane + control-plane tools for debugging/admin.
     """
     import anyio
     
     async def _reg() -> None:
-        # High-level entrypoints (simplified API for LLMs) - always register
-        register_entrypoints(mcp)
-        
         if expose_all:
+            # Full tool surface (debug/admin). Not recommended for Cursor default UX.
+            register_product_tools(mcp)
             # Data-plane tools (structured namespace)
             data_serp.register(mcp)
             data_universal.register(mcp)
@@ -52,11 +51,9 @@ def register_all(mcp: FastMCP, expose_all: bool = False) -> None:
             control_unlimited.register(mcp)
             control_locations.register(mcp)
         else:
-            # Core mode: only register essential tools
-            # Register browser.navigate and browser.snapshot for automation
-            data_browser.register_core_only(mcp)
-            # Register tasks.list to help users discover available tools
-            data_tasks.register_list_only(mcp)
+            # Core mode: competitor-style compact product surface (only 5 tools)
+            register_compact_tools(mcp)
+            # Note: full namespaces and admin tools are intentionally not exposed in core mode.
 
     try:
         anyio.run(_reg)

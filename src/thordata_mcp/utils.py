@@ -4,6 +4,7 @@ from __future__ import annotations
 import functools
 import html2text
 import logging
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from typing import Any, Callable, Optional
 
 from markdownify import markdownify as md
@@ -86,15 +87,44 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
             logger.error("API error in %s: %s", func.__name__, e)
             msg = getattr(e, "message", str(e))
             payload = getattr(e, "payload", None)
+            code = getattr(e, "code", None)
+            # Try to normalize common backend codes/messages for better UX
+            error_type = "api_error"
+            norm_code = "E2001"
+            msg_l = str(msg).lower()
             if isinstance(payload, dict):
                 msg = payload.get("msg", msg)
+                # Some backend errors embed more detail in payload fields
+                if isinstance(payload.get("error"), str) and not msg:
+                    msg = payload["error"]
+                if isinstance(payload.get("message"), str) and not msg:
+                    msg = payload["message"]
+            # Heuristics for frequent categories
+            if "captcha" in msg_l or "403" in msg_l:
+                error_type = "blocked"
+                norm_code = "E2101"
+            elif "not collected" in msg_l or "failed to parse" in msg_l:
+                error_type = "parse_failed"
+                norm_code = "E2102"
+            elif "not exist" in msg_l or "404" in msg_l:
+                error_type = "not_found"
+                norm_code = "E2104"
+            elif "504" in msg_l or "gateway timeout" in msg_l:
+                error_type = "upstream_timeout"
+                norm_code = "E2105"
+            elif "500" in msg_l or "internal server error" in msg_l:
+                error_type = "upstream_internal_error"
+                norm_code = "E2106"
+            elif "subtitles_error" in msg_l or "unable to download api page" in msg_l:
+                error_type = "media_backend_error"
+                norm_code = "E2107"
             return error_response(
                 tool=func.__name__,
                 input={k: v for k, v in kwargs.items() if k != "ctx"},
-                error_type="api_error",
-                code="E2001",
+                error_type=error_type,
+                code=norm_code,
                 message=msg,
-                details={"code": getattr(e, "code", None), "payload": payload},
+                details={"code": code, "payload": payload},
             )
         except ThordataNetworkError as e:
             err_str = str(e)
@@ -146,3 +176,56 @@ def truncate_content(content: str, max_length: int = 20_000) -> str:
     if len(content) <= max_length:
         return content
     return content[:max_length] + f"\n\n... [Content Truncated, original length: {len(content)} chars]"
+
+
+# ---------------------------------------------------------------------------
+# Download URL helpers
+# ---------------------------------------------------------------------------
+
+def enrich_download_url(download_url: str, *, task_id: str | None = None, file_type: str | None = None) -> str:
+    """Ensure returned download URLs are directly usable in a browser.
+
+    Some SDK / backend paths may return a URL missing required query params such as
+    `api_key` and `plat`, leading to {"error":"Missing necessary parameters."}.
+    """
+    try:
+        from .config import settings
+    except Exception:  # pragma: no cover
+        settings = None  # type: ignore[assignment]
+
+    token = getattr(settings, "THORDATA_SCRAPER_TOKEN", None) if settings else None
+    plat = getattr(settings, "THORDATA_DOWNLOAD_PLAT", "1") if settings else "1"
+    base = getattr(settings, "THORDATA_DOWNLOAD_BASE_URL", "https://scraperapi.thordata.com/download") if settings else "https://scraperapi.thordata.com/download"
+
+    # If we can't enrich (no token), return as-is.
+    if not token:
+        return download_url
+
+    parsed = urlparse(download_url)
+    qs = dict(parse_qsl(parsed.query, keep_blank_values=True))
+
+    # Backfill known parameters
+    if "api_key" not in qs:
+        qs["api_key"] = token
+    if "plat" not in qs and plat:
+        qs["plat"] = plat
+    if "task_id" not in qs and task_id:
+        qs["task_id"] = task_id
+    if "type" not in qs and file_type:
+        qs["type"] = file_type
+
+    # If SDK returned a relative/alternate host, normalize to configured base
+    if not parsed.scheme or not parsed.netloc:
+        parsed = urlparse(base)
+    elif parsed.path.rstrip("/") != urlparse(base).path.rstrip("/"):
+        # Keep original host, only fix query; unless path looks non-download
+        pass
+
+    new_query = urlencode(qs, doseq=True)
+    new_parsed = parsed._replace(query=new_query)
+    # If original URL had a different host/path but is a valid absolute URL, preserve them.
+    if parsed.scheme and parsed.netloc and urlparse(download_url).scheme and urlparse(download_url).netloc:
+        orig = urlparse(download_url)
+        new_parsed = orig._replace(query=new_query)
+
+    return urlunparse(new_parsed)

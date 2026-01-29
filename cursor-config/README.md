@@ -52,13 +52,12 @@ After copying the configuration file and setting environment variables, restart 
 ## Configuration Options
 
 ### `thordata` (Core Mode)
-- **Tools**: 6 core tools
-  - `search` - SERP search
-  - `scrape` - Web scraping
-  - `task_run` - Task execution
-  - `browser.navigate` - Browser navigation
-  - `browser.snapshot` - Browser snapshot
-  - `tasks.list` - Tool discovery
+- **Tools**: **5 core tools** (competitor-style, clean + practical)
+  - `serp` - SERP SCRAPER (actions: `search`, `batch_search`)
+  - `unlocker` - WEB UNLOCKER (actions: `fetch`, `batch_fetch`)
+  - `web_scraper` - WEB SCRAPER 100+ tasks + task management (actions: `catalog`, `groups`, `run`, `batch_run`, `status`, `result`, ...)
+  - `browser` - BROWSER SCRAPER (actions: `navigate`, `snapshot`)
+  - `smart_scrape` - Smart entry (auto pick WEB SCRAPER tool; fallback to WEB UNLOCKER)
 
 ## Verification
 
@@ -68,7 +67,7 @@ After setup, verify the configuration:
 2. Check MCP server status (should show "Connected")
 3. Try using a tool:
    ```
-   Use search tool to search for "python"
+   Use serp tool to search for "python"
    ```
 
 ## Troubleshooting

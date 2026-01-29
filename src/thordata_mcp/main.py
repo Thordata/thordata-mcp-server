@@ -59,7 +59,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--expose-all-tools",
         action="store_true",
         default=False,
-        help="Expose all tools (default: only expose 6 core tools: search, scrape, task_run, browser.navigate, browser.snapshot, tasks.list).",
+        help="Expose all tools (default: compact 5-tool surface: serp, unlocker, web_scraper, browser, smart_scrape).",
     )
     return parser
 

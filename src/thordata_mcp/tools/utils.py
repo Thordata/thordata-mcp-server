@@ -37,6 +37,7 @@ def iter_tool_request_types(max_depth: int = 6) -> list[type[ToolRequest]]:
                 pass
 
     out: list[type[ToolRequest]] = []
+    seen: set[int] = set()
 
     def walk(obj: Any, depth: int = 0) -> None:
         if depth > max_depth:
@@ -46,6 +47,10 @@ def iter_tool_request_types(max_depth: int = 6) -> list[type[ToolRequest]]:
                 if member is ToolRequest:
                     continue
                 if issubclass(member, ToolRequest) and dataclasses.is_dataclass(member):
+                    mid = id(member)
+                    if mid in seen:
+                        continue
+                    seen.add(mid)
                     out.append(member)
                 else:
                     walk(member, depth + 1)
@@ -65,6 +70,31 @@ def tool_key(t: type[ToolRequest]) -> str:
         Tool key in format: module.qualname
     """
     return f"{t.__module__}.{t.__qualname__}"
+
+
+def tool_group_from_key(key: str) -> str:
+    """Infer a coarse group from tool_key (based on module name)."""
+    # Expected: thordata.tools.<group>.<Namespace>.<Tool>
+    # Example: thordata.tools.ecommerce.Amazon.ProductByAsin
+    parts = key.split(".")
+    try:
+        i = parts.index("tools")
+    except ValueError:
+        return "other"
+    if i + 1 < len(parts):
+        return parts[i + 1]
+    return "other"
+
+
+def matches_any_prefix_or_exact(value: str, allowlist: list[str]) -> bool:
+    """Return True if value equals or startswith any allowlist entry."""
+    for item in allowlist:
+        it = item.strip()
+        if not it:
+            continue
+        if value == it or value.startswith(it):
+            return True
+    return False
 
 
 def tool_schema(t: type[ToolRequest]) -> dict[str, Any]:
@@ -87,5 +117,6 @@ def tool_schema(t: type[ToolRequest]) -> dict[str, Any]:
         "key": tool_key(t),  # Keep "key" for backward compatibility
         "spider_id": getattr(t, "SPIDER_ID", None),
         "spider_name": getattr(t, "SPIDER_NAME", None),
+        "group": tool_group_from_key(tool_key(t)),
         "fields": fields,
     }

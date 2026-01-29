@@ -65,14 +65,14 @@ After restarting Cursor IDE:
 2. Check MCP server status (should show "Connected" for `thordata`)
 3. Test a tool:
    ```
-   Use search tool to search for "python"
+   Use serp tool to search for "python"
    ```
 
 ## Configuration Options
 
 ### Core Mode (`thordata`)
-- **6 tools**: `search`, `scrape`, `task_run`, `browser.navigate`, `browser.snapshot`, `tasks.list`
-- **Best for**: Most users, simpler interface
+- **5 tools**: `serp`, `unlocker`, `web_scraper`, `browser`, `smart_scrape`
+- **Best for**: Cursor/LLMs (clean tool surface; 100+ tasks are discoverable via `web_scraper` → `catalog/groups`)
 
 ## Troubleshooting
 

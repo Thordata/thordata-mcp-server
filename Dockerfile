@@ -8,7 +8,8 @@ ENV PYTHONUNBUFFERED=1 \
 
 COPY . .
 
-RUN pip install --no-cache-dir .
+# Increase pip network timeout a bit to be robust to slow connections when building image
+RUN pip install --no-cache-dir --default-timeout=120 .
 
 EXPOSE 8000
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thordata-mcp-server"
-version = "0.4.0"
+version = "0.4.1"
 description = "Official MCP Server for Thordata."
 authors = [{name = "Thordata Developer Team", email = "support@thordata.com"}]
 readme = "README.md"
@@ -12,6 +12,7 @@ requires-python = ">=3.10"
 license = "MIT"
 dependencies = [
     "mcp[cli]>=1.0.0",
+    "sse-starlette>=1.6.1",
     "thordata-sdk>=1.6.0",
     "pydantic-settings",
     "markdownify",
