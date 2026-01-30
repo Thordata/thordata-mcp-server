@@ -34,10 +34,6 @@ class Settings(BaseSettings):
     THORDATA_BROWSER_USERNAME: str | None = None
     THORDATA_BROWSER_PASSWORD: str | None = None
     
-    # Optional residential proxy credentials (for proxy network tools)
-    THORDATA_RESIDENTIAL_USERNAME: str | None = None
-    THORDATA_RESIDENTIAL_PASSWORD: str | None = None
-    
     # Logging
     LOG_LEVEL: str = "INFO"
     

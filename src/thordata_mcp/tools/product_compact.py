@@ -27,6 +27,7 @@ from .product import (  # noqa: E402
     _extract_structured_from_html,
     _fetch_json_preview,
     _guess_tool_for_url,
+    _hostname,
     _normalize_extracted,
     _normalize_record,
     _run_web_scraper_tool,
@@ -56,9 +57,52 @@ def register(mcp: FastMCP) -> None:
         params: dict[str, Any] | None = None,
         ctx: Optional[Context] = None,
     ) -> dict[str, Any]:
-        """SERP SCRAPER: action in {search, batch_search}."""
-        p = params or {}
+        """SERP SCRAPER: action in {search, batch_search}.
+        
+        Args:
+            action: Action to perform - "search" or "batch_search"
+            params: Parameters dictionary. For "search": {"q": "query", "num": 10, "engine": "google", ...}
+                   For "batch_search": {"requests": [{"q": "query1"}, ...], "concurrency": 5}
+        
+        Examples:
+            serp(action="search", params={"q": "Python programming", "num": 10})
+            serp(action="batch_search", params={"requests": [{"q": "query1"}, {"q": "query2"}], "concurrency": 5})
+        """
+        # Normalize params: handle None, empty dict, or string (JSON)
+        if params is None:
+            p = {}
+        elif isinstance(params, str):
+            try:
+                p = json.loads(params)
+            except json.JSONDecodeError as e:
+                return error_response(
+                    tool="serp",
+                    input={"action": action, "params": params},
+                    error_type="json_error",
+                    code="E4002",
+                    message=f"Invalid JSON in params: {e}",
+                )
+        elif isinstance(params, dict):
+            p = params
+        else:
+            return error_response(
+                tool="serp",
+                input={"action": action, "params": params},
+                error_type="validation_error",
+                code="E4001",
+                message="params must be a dictionary or JSON string",
+            )
+        
         a = (action or "").strip().lower()
+        if not a:
+            return error_response(
+                tool="serp",
+                input={"action": action, "params": p},
+                error_type="validation_error",
+                code="E4001",
+                message="action is required",
+            )
+        
         client = await ServerContext.get_client()
 
         if a == "search":
@@ -123,45 +167,54 @@ def register(mcp: FastMCP) -> None:
                 q = str(r.get("q", r.get("query", "")))
                 if not q:
                     return {"index": i, "ok": False, "error": {"type": "validation_error", "message": "Missing q"}}
-                engine = str(r.get("engine", "google"))
-                num = int(r.get("num", 10))
-                start = int(r.get("start", 0))
-                extra_params = r.get("extra_params") if isinstance(r.get("extra_params"), dict) else {}
-                if r.get("ai_overview") is not None:
-                    extra_params = dict(extra_params)
-                    extra_params["ai_overview"] = r.get("ai_overview")
-                async with sem:
-                    req = SerpRequest(
-                        query=q,
-                        engine=getattr(EngineEnum, engine.upper(), EngineEnum.GOOGLE),
-                        num=num,
-                        start=start,
-                        device=r.get("device"),
-                        output_format=sdk_fmt,
-                        render_js=r.get("render_js"),
-                        no_cache=r.get("no_cache"),
-                        google_domain=r.get("google_domain"),
-                        country=r.get("gl"),
-                        language=r.get("hl"),
-                        countries_filter=r.get("cr"),
-                        languages_filter=r.get("lr"),
-                        location=r.get("location"),
-                        uule=r.get("uule"),
-                        search_type=r.get("tbm"),
-                        ludocid=r.get("ludocid"),
-                        kgmid=r.get("kgmid"),
-                        extra_params=extra_params,
-                    )
-                    data = await client.serp_search_advanced(req)
-                if fmt in {"light_json", "light"}:
-                    data = _to_light_json(data)
-                return {"index": i, "ok": True, "q": q, "output": data}
+                try:
+                    engine = str(r.get("engine", "google"))
+                    num = int(r.get("num", 10))
+                    start = int(r.get("start", 0))
+                    extra_params = r.get("extra_params") if isinstance(r.get("extra_params"), dict) else {}
+                    if r.get("ai_overview") is not None:
+                        extra_params = dict(extra_params)
+                        extra_params["ai_overview"] = r.get("ai_overview")
+                    async with sem:
+                        req = SerpRequest(
+                            query=q,
+                            engine=getattr(EngineEnum, engine.upper(), EngineEnum.GOOGLE),
+                            num=num,
+                            start=start,
+                            device=r.get("device"),
+                            output_format=sdk_fmt,
+                            render_js=r.get("render_js"),
+                            no_cache=r.get("no_cache"),
+                            google_domain=r.get("google_domain"),
+                            country=r.get("gl"),
+                            language=r.get("hl"),
+                            countries_filter=r.get("cr"),
+                            languages_filter=r.get("lr"),
+                            location=r.get("location"),
+                            uule=r.get("uule"),
+                            search_type=r.get("tbm"),
+                            ludocid=r.get("ludocid"),
+                            kgmid=r.get("kgmid"),
+                            extra_params=extra_params,
+                        )
+                        data = await client.serp_search_advanced(req)
+                    if fmt in {"light_json", "light"}:
+                        data = _to_light_json(data)
+                    return {"index": i, "ok": True, "q": q, "output": data}
+                except Exception as e:
+                    return {"index": i, "ok": False, "q": q, "error": str(e)}
 
             await safe_ctx_info(ctx, f"serp.batch_search count={len(reqs)} concurrency={concurrency} format={fmt}")
-            results = await asyncio.gather(*[_one(i, r if isinstance(r, dict) else {}) for i, r in enumerate(reqs)])
+            results = await asyncio.gather(*[_one(i, r if isinstance(r, dict) else {}) for i, r in enumerate(reqs)], return_exceptions=False)
             return ok_response(tool="serp", input={"action": "batch_search", "params": p}, output={"results": results})
 
-        return error_response(tool="serp", input={"action": action, "params": p}, error_type="validation_error", code="E4001", message="Unknown action")
+        return error_response(
+            tool="serp",
+            input={"action": action, "params": p},
+            error_type="validation_error",
+            code="E4001",
+            message=f"Unknown action '{action}'. Supported actions: 'search', 'batch_search'",
+        )
 
     # -------------------------
     # WEB UNLOCKER (compact)
@@ -174,9 +227,52 @@ def register(mcp: FastMCP) -> None:
         params: dict[str, Any] | None = None,
         ctx: Optional[Context] = None,
     ) -> dict[str, Any]:
-        """WEB UNLOCKER: action in {fetch, batch_fetch}."""
-        p = params or {}
+        """WEB UNLOCKER: action in {fetch, batch_fetch}.
+        
+        Args:
+            action: Action to perform - "fetch" or "batch_fetch"
+            params: Parameters dictionary. For "fetch": {"url": "https://...", "js_render": true, "output_format": "html", ...}
+                   For "batch_fetch": {"requests": [{"url": "https://..."}, ...], "concurrency": 5}
+        
+        Examples:
+            unlocker(action="fetch", params={"url": "https://www.google.com", "js_render": true})
+            unlocker(action="batch_fetch", params={"requests": [{"url": "https://example.com"}], "concurrency": 5})
+        """
+        # Normalize params: handle None, empty dict, or string (JSON)
+        if params is None:
+            p = {}
+        elif isinstance(params, str):
+            try:
+                p = json.loads(params)
+            except json.JSONDecodeError as e:
+                return error_response(
+                    tool="unlocker",
+                    input={"action": action, "params": params},
+                    error_type="json_error",
+                    code="E4002",
+                    message=f"Invalid JSON in params: {e}",
+                )
+        elif isinstance(params, dict):
+            p = params
+        else:
+            return error_response(
+                tool="unlocker",
+                input={"action": action, "params": params},
+                error_type="validation_error",
+                code="E4001",
+                message="params must be a dictionary or JSON string",
+            )
+        
         a = (action or "").strip().lower()
+        if not a:
+            return error_response(
+                tool="unlocker",
+                input={"action": action, "params": p},
+                error_type="validation_error",
+                code="E4001",
+                message="action is required",
+            )
+        
         client = await ServerContext.get_client()
 
         if a == "fetch":
@@ -191,7 +287,45 @@ def register(mcp: FastMCP) -> None:
             block_resources = p.get("block_resources")
             wait_for = p.get("wait_for")
             max_chars = int(p.get("max_chars", 20_000))
+            clean_content = p.get("clean_content")  # e.g., "js,css" or ["js", "css"]
+            headers = p.get("headers")  # Custom headers (list of dicts or dict)
+            cookies = p.get("cookies")  # Custom cookies (list of dicts or string)
             extra_params = p.get("extra_params") if isinstance(p.get("extra_params"), dict) else {}
+            
+            # Handle clean_content: can be string (comma-separated) or list
+            if clean_content:
+                if isinstance(clean_content, str):
+                    clean_content_list = [c.strip() for c in clean_content.split(",")]
+                elif isinstance(clean_content, list):
+                    clean_content_list = clean_content
+                else:
+                    clean_content_list = None
+                if clean_content_list:
+                    extra_params["clean_content"] = ",".join(clean_content_list)
+            
+            # Handle headers: can be list of dicts [{"name": "...", "value": "..."}] or dict
+            if headers:
+                if isinstance(headers, list):
+                    # Convert list of dicts to proper format if needed
+                    extra_params["headers"] = headers
+                elif isinstance(headers, dict):
+                    # Convert dict to list format
+                    extra_params["headers"] = [{"name": k, "value": v} for k, v in headers.items()]
+            
+            # Handle cookies: can be list of dicts [{"name": "...", "value": "..."}] or string
+            if cookies:
+                if isinstance(cookies, str):
+                    extra_params["cookies"] = cookies
+                elif isinstance(cookies, list):
+                    # Convert list of dicts to string format if needed
+                    cookie_strs = []
+                    for c in cookies:
+                        if isinstance(c, dict):
+                            cookie_strs.append(f"{c.get('name', '')}={c.get('value', '')}")
+                        else:
+                            cookie_strs.append(str(c))
+                    extra_params["cookies"] = "; ".join(cookie_strs)
+            
             fetch_format = "html" if fmt in {"markdown", "md"} else fmt
             await safe_ctx_info(ctx, f"unlocker.fetch url={url!r} format={fmt} js_render={js_render}")
             data = await client.universal_scrape(
@@ -271,7 +405,13 @@ def register(mcp: FastMCP) -> None:
             results = await asyncio.gather(*[_one(i, r if isinstance(r, dict) else {}) for i, r in enumerate(reqs)])
             return ok_response(tool="unlocker", input={"action": "batch_fetch", "params": p}, output={"results": results})
 
-        return error_response(tool="unlocker", input={"action": action, "params": p}, error_type="validation_error", code="E4001", message="Unknown action")
+        return error_response(
+            tool="unlocker",
+            input={"action": action, "params": p},
+            error_type="validation_error",
+            code="E4001",
+            message=f"Unknown action '{action}'. Supported actions: 'fetch', 'batch_fetch'",
+        )
 
     # -------------------------
     # WEB SCRAPER (compact)
@@ -284,9 +424,55 @@ def register(mcp: FastMCP) -> None:
         params: dict[str, Any] | None = None,
         ctx: Optional[Context] = None,
     ) -> dict[str, Any]:
-        """WEB SCRAPER: action covers catalog/groups/run/batch_run/status/wait/result/list_tasks and batch helpers."""
-        p = params or {}
+        """WEB SCRAPER: action covers catalog/groups/run/batch_run/status/wait/result/list_tasks and batch helpers.
+        
+        Args:
+            action: Action to perform - "catalog", "groups", "run", "batch_run", "status", "wait", "result", "list_tasks", etc.
+            params: Parameters dictionary. Varies by action:
+                   - "catalog": {"group": "...", "keyword": "...", "limit": 100, "offset": 0}
+                   - "run": {"tool": "tool_key", "params": {...}, "wait": true, "file_type": "json"}
+                   - "status": {"task_id": "..."}
+                   - etc.
+        
+        Examples:
+            web_scraper(action="catalog", params={"limit": 20})
+            web_scraper(action="run", params={"tool": "thordata.tools.ecommerce.Amazon.ProductByUrl", "params": {"url": "https://amazon.com/..."}})
+        """
+        # Normalize params: handle None, empty dict, or string (JSON)
+        if params is None:
+            p = {}
+        elif isinstance(params, str):
+            try:
+                p = json.loads(params)
+            except json.JSONDecodeError as e:
+                return error_response(
+                    tool="web_scraper",
+                    input={"action": action, "params": params},
+                    error_type="json_error",
+                    code="E4002",
+                    message=f"Invalid JSON in params: {e}",
+                )
+        elif isinstance(params, dict):
+            p = params
+        else:
+            return error_response(
+                tool="web_scraper",
+                input={"action": action, "params": params},
+                error_type="validation_error",
+                code="E4001",
+                message="params must be a dictionary or JSON string",
+            )
+        
         a = (action or "").strip().lower()
+        if not a:
+            return error_response(
+                tool="web_scraper",
+                input={"action": action, "params": p},
+                error_type="validation_error",
+                code="E4001",
+                message="action is required",
+            )
+        
         client = await ServerContext.get_client()
 
         if a == "groups":
@@ -439,7 +625,13 @@ def register(mcp: FastMCP) -> None:
             tid = str(p.get("task_id", ""))
             return error_response(tool="web_scraper", input={"action": "cancel", "params": p}, error_type="not_supported", code="E4005", message="Cancel endpoint not available in public Tasks API.", details={"task_id": tid})
 
-        return error_response(tool="web_scraper", input={"action": action, "params": p}, error_type="validation_error", code="E4001", message="Unknown action")
+        return error_response(
+            tool="web_scraper",
+            input={"action": action, "params": p},
+            error_type="validation_error",
+            code="E4001",
+            message=f"Unknown action '{action}'. Supported actions: 'catalog', 'groups', 'run', 'batch_run', 'status', 'wait', 'result', 'list_tasks', 'status_batch', 'result_batch', 'cancel'",
+        )
 
     # -------------------------
     # BROWSER SCRAPER (compact)
@@ -452,9 +644,52 @@ def register(mcp: FastMCP) -> None:
         params: dict[str, Any] | None = None,
         ctx: Optional[Context] = None,
     ) -> dict[str, Any]:
-        """BROWSER SCRAPER: action in {navigate, snapshot}."""
-        p = params or {}
+        """BROWSER SCRAPER: action in {navigate, snapshot}.
+        
+        Args:
+            action: Action to perform - "navigate" or "snapshot"
+            params: Parameters dictionary. For "navigate": {"url": "https://..."}
+                   For "snapshot": {"filtered": true}
+        
+        Examples:
+            browser(action="navigate", params={"url": "https://www.google.com"})
+            browser(action="snapshot", params={"filtered": true})
+        """
+        # Normalize params: handle None, empty dict, or string (JSON)
+        if params is None:
+            p = {}
+        elif isinstance(params, str):
+            try:
+                p = json.loads(params)
+            except json.JSONDecodeError as e:
+                return error_response(
+                    tool="browser",
+                    input={"action": action, "params": params},
+                    error_type="json_error",
+                    code="E4002",
+                    message=f"Invalid JSON in params: {e}",
+                )
+        elif isinstance(params, dict):
+            p = params
+        else:
+            return error_response(
+                tool="browser",
+                input={"action": action, "params": params},
+                error_type="validation_error",
+                code="E4001",
+                message="params must be a dictionary or JSON string",
+            )
+        
         a = (action or "").strip().lower()
+        if not a:
+            return error_response(
+                tool="browser",
+                input={"action": action, "params": p},
+                error_type="validation_error",
+                code="E4001",
+                message="action is required",
+            )
+        
         # Credentials check
         user = settings.THORDATA_BROWSER_USERNAME
         pwd = settings.THORDATA_BROWSER_PASSWORD
@@ -492,7 +727,13 @@ def register(mcp: FastMCP) -> None:
                     "dom_snapshot": dom_snapshot,
                 },
             )
-        return error_response(tool="browser", input={"action": action, "params": p}, error_type="validation_error", code="E4001", message="Unknown action")
+        return error_response(
+            tool="browser",
+            input={"action": action, "params": p},
+            error_type="validation_error",
+            code="E4001",
+            message=f"Unknown action '{action}'. Supported actions: 'navigate', 'snapshot'",
+        )
 
     # -------------------------
     # SMART SCRAPE (compact)
@@ -510,50 +751,208 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Auto-pick a Web Scraper task for URL; fallback to Unlocker. Always returns structured."""
         await safe_ctx_info(ctx, f"smart_scrape url={url!r} prefer_structured={prefer_structured}")
-        selected_tool, selected_params = _guess_tool_for_url(url)
-        candidates: list[tuple[str, dict[str, Any]]] = []
-        # Only keep guessed tool if it exists in tool map (avoid invalid hardcode drift)
-        from .product import _ensure_tools as _ensure  # local import to avoid cycles
+        host = _hostname(url)
+        url_lower = url.lower()
 
-        _, tools_map = _ensure()
-        if selected_tool and selected_tool in tools_map:
-            candidates.append((selected_tool, selected_params))
-        if not candidates:
-            for k in _candidate_tools_for_url(url, limit=3):
-                candidates.append((k, {"url": url}))
+        # Special-case: Google search pages are best handled by SERP (more reliable than Unlocker).
+        if prefer_structured:
+            from .product import _extract_google_search_query as _extract_q
+            from .product import _is_google_search_url as _is_gsearch
+
+            if _is_gsearch(url):
+                q = _extract_q(url)
+                await safe_ctx_info(ctx, f"smart_scrape: Google search detected, routing to SERP q={q!r}")
+                try:
+                    from thordata.types import SerpRequest
+                    from thordata.types import Engine as EngineEnum
+                    client = await ServerContext.get_client()
+                    req = SerpRequest(
+                        query=str(q or ""),
+                        engine=EngineEnum.GOOGLE,
+                        num=10,
+                        start=0,
+                        country=None,
+                        language=None,
+                        google_domain="google.com",
+                        gl=None,
+                        hl=None,
+                        location=None,
+                        uule=None,
+                        ludocid=None,
+                        kgmid=None,
+                        extra_params={},
+                    )
+                    data = await client.serp_search_advanced(req)
+                    return ok_response(
+                        tool="smart_scrape",
+                        input={"url": url, "prefer_structured": prefer_structured, "preview": preview},
+                        output={
+                            "path": "SERP",
+                            "serp": {"engine": "google", "q": q, "num": 10, "start": 0},
+                            "result": data,
+                            "structured": {"url": url, "query": q, "engine": "google"},
+                            "candidates": [],
+                            "tried": [],
+                        },
+                    )
+                except Exception as e:
+                    await safe_ctx_info(ctx, f"smart_scrape: SERP routing failed, falling back. err={e}")
+
+        # Match product.py behavior: for certain URLs, don't even attempt Web Scraper.
+        # - Google search pages: prefer SERP / Unlocker
+        # - Generic/example domains: never pick marketplace/product tools
+        skip_web_scraper = False
+        if host == "google.com" and "/search" in url_lower:
+            skip_web_scraper = True
+        generic_domains = {"example.com", "example.org", "example.net", "test.com", "localhost"}
+        if host in generic_domains or (host and host.endswith(".example.com")):
+            skip_web_scraper = True
+
+        selected_tool: str | None = None
+        selected_params: dict[str, Any] = {}
+        candidates: list[tuple[str, dict[str, Any]]] = []
+        if not skip_web_scraper:
+            selected_tool, selected_params = _guess_tool_for_url(url)
+            # Only keep guessed tool if it exists in tool map (avoid invalid hardcode drift)
+            from .product import _ensure_tools as _ensure  # local import to avoid cycles
+
+            _, tools_map = _ensure()
+            if selected_tool and selected_tool in tools_map:
+                candidates.append((selected_tool, selected_params))
+
+            if not candidates:
+                candidate_keys = _candidate_tools_for_url(url, limit=3)
+                # Filter out obviously wrong tools (like GitHub for non-GitHub URLs)
+                filtered_candidates: list[str] = []
+                for k in candidate_keys:
+                    lk = k.lower()
+                    if "github" in lk and host and "github" not in host.lower():
+                        continue
+                    if "repository" in lk and host and "github" not in host.lower() and "gitlab" not in host.lower():
+                        continue
+                    if "amazon" in lk and host and "amazon" not in host.lower():
+                        continue
+                    if "walmart" in lk and host and "walmart" not in host.lower():
+                        continue
+                    if ("googleshopping" in lk or "google.shopping" in lk) and (host == "google.com" or "/search" in url_lower):
+                        continue
+                    filtered_candidates.append(k)
+
+                for k in filtered_candidates:
+                    candidates.append((k, {"url": url}))
+        else:
+            await safe_ctx_info(ctx, f"smart_scrape: skipping Web Scraper for host={host!r} url={url!r}")
 
         if prefer_structured and candidates:
             tried: list[dict[str, Any]] = []
             for tool, params in candidates[:3]:
                 r = await _run_web_scraper_tool(tool=tool, params=params, wait=True, max_wait_seconds=max_wait_seconds, file_type="json", ctx=ctx)
-                if r.get("ok") is True:
+                # Check if task succeeded (status should be Ready/Success, not Failed)
+                result_obj = r.get("output") if isinstance(r.get("output"), dict) else {}
+                status = result_obj.get("status", "").lower() if isinstance(result_obj, dict) else ""
+                
+                # If status is Failed, don't try more Web Scraper tools - go to Unlocker
+                # Also check if r.get("ok") is False, which indicates the tool call itself failed
+                if status == "failed" or r.get("ok") is False:
+                    await safe_ctx_info(ctx, f"smart_scrape: Web Scraper tool {tool} failed (status={status}, ok={r.get('ok')}), falling back to Unlocker")
+                    tried.append({
+                        "tool": tool,
+                        "ok": r.get("ok"),
+                        "status": status,
+                        "error": r.get("error"),
+                    })
+                    break  # Exit loop and go to Unlocker fallback
+                
+                # Only return success if both ok is True AND status is not failed
+                if r.get("ok") is True and status not in {"failed", "error", "failure"}:
                     out = r.get("output") if isinstance(r.get("output"), dict) else {}
                     dl = out.get("download_url") if isinstance(out, dict) else None
                     preview_obj = None
                     structured = {"url": url}
                     if preview and isinstance(dl, str) and dl:
                         preview_obj = await _fetch_json_preview(dl, max_chars=int(preview_max_chars))
+                        # Try to use preview data even if JSON parsing failed but we have raw data
                         if preview_obj.get("ok") is True:
                             data = preview_obj.get("data")
                             if isinstance(data, list) and data:
                                 structured = _normalize_record(data[0], url=url)
                             elif isinstance(data, dict):
                                 structured = _normalize_record(data, url=url)
+                        elif preview_obj.get("status") == 200 and preview_obj.get("raw"):
+                            # JSON parsing failed but we have raw data - try to extract basic info
+                            raw = preview_obj.get("raw", "")
+                            if raw:
+                                # Try to extract basic fields from raw text if possible
+                                structured = {"url": url, "raw_preview": raw[:500]}  # Limit raw preview size
                     return ok_response(
                         tool="smart_scrape",
                         input={"url": url, "prefer_structured": prefer_structured, "preview": preview},
                         output={"path": "WEB_SCRAPER", "selected_tool": tool, "selected_params": params, "result": out, "structured": structured, "preview": preview_obj, "tried": tried},
                     )
-                tried.append({"tool": tool, "ok": r.get("ok"), "error": r.get("error")})
+                tried.append({"tool": tool, "ok": r.get("ok"), "status": status, "error": r.get("error")})
 
         client = await ServerContext.get_client()
-        html = await client.universal_scrape(url=url, js_render=True, output_format="html")
-        html_str = str(html) if not isinstance(html, str) else html
-        extracted = _extract_structured_from_html(html_str) if html_str else {}
-        structured = _normalize_extracted(extracted, url=url)
-        return ok_response(
-            tool="smart_scrape",
-            input={"url": url, "prefer_structured": prefer_structured, "preview": preview},
-            output={"path": "WEB_UNLOCKER", "unlocker": {"html": html_str}, "extracted": extracted, "structured": structured, "candidates": [c[0] for c in candidates]},
-        )
+        try:
+            html = await client.universal_scrape(url=url, js_render=True, output_format="html")
+            html_str = str(html) if not isinstance(html, str) else html
+            extracted = _extract_structured_from_html(html_str) if html_str else {}
+            structured = _normalize_extracted(extracted, url=url)
+            return ok_response(
+                tool="smart_scrape",
+                input={"url": url, "prefer_structured": prefer_structured, "preview": preview},
+                output={
+                    "path": "WEB_UNLOCKER",
+                    "unlocker": {"html": html_str},
+                    "extracted": extracted,
+                    "structured": structured,
+                    "selected_tool": selected_tool,
+                    "selected_params": selected_params,
+                    "candidates": [c[0] for c in candidates],
+                    "tried": tried if "tried" in locals() else [],
+                },
+            )
+        except asyncio.TimeoutError as e:
+            # Handle timeout specifically
+            await safe_ctx_info(ctx, f"smart_scrape: Unlocker timed out: {e}")
+            return error_response(
+                tool="smart_scrape",
+                input={"url": url, "prefer_structured": prefer_structured, "preview": preview},
+                error_type="timeout_error",
+                code="E2003",
+                message=f"Unlocker request timed out. The page may be slow to load or blocked.",
+                details={
+                    "selected_tool": selected_tool,
+                    "candidates": [c[0] for c in candidates],
+                    "tried": tried if "tried" in locals() else [],
+                },
+            )
+        except Exception as e:
+            # If Unlocker also fails, return error with context
+            await safe_ctx_info(ctx, f"smart_scrape: Unlocker also failed: {e}")
+            error_msg = str(e)
+            # Extract more useful error information
+            if "504" in error_msg or "Gateway Timeout" in error_msg:
+                error_type = "timeout_error"
+                error_code = "E2003"
+                error_message = f"Unlocker request timed out (504 Gateway Timeout). The page may be slow to load or blocked."
+            elif "timeout" in error_msg.lower():
+                error_type = "timeout_error"
+                error_code = "E2003"
+                error_message = f"Unlocker request timed out: {error_msg}"
+            else:
+                error_type = "network_error"
+                error_code = "E2002"
+                error_message = f"Both Web Scraper and Unlocker failed. Last error: {error_msg}"
+            return error_response(
+                tool="smart_scrape",
+                input={"url": url, "prefer_structured": prefer_structured, "preview": preview},
+                error_type=error_type,
+                code=error_code,
+                message=error_message,
+                details={
+                    "selected_tool": selected_tool,
+                    "candidates": [c[0] for c in candidates],
+                    "tried": tried if "tried" in locals() else [],
+                },
+            )
 

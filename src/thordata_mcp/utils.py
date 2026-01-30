@@ -145,7 +145,8 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
                 details=err_str,
             )
         except Exception as e:  # pragma: no cover
-            logger.exception("Unexpected error in %s", func.__name__)
+            # Use logger.error instead of logger.exception to avoid rich traceback issues
+            logger.error("Unexpected error in %s: %s", func.__name__, str(e), exc_info=False)
             return error_response(
                 tool=func.__name__,
                 input={k: v for k, v in kwargs.items() if k != "ctx"},

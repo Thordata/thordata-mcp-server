@@ -1,8 +1,15 @@
 # Thordata MCP Server
 
-**Give your AI Agents real-time web superpowers.**
+**Give your AI Agents real-time web scraping superpowers.**
 
-The official Thordata Model Context Protocol (MCP) server enables LLMs (Claude, Gemini, etc.) to access, discover, and extract web data in real-time. Seamlessly connect to the Thordata Proxy Network, SERP API, Universal Scraper, Scraping Browser, and Web Scraper API.
+This MCP Server version has been **streamlined to focus on scraping**, concentrating on four core products:
+
+- **SERP API** (Search result scraping)
+- **Web Unlocker / Universal Scraper** (Universal page unlocking & scraping)
+- **Web Scraper API** (Structured task flow)
+- **Scraping Browser** (Browser-level scraping)
+
+Earlier versions exposed `proxy.*` / `account.*` / `proxy_users.*` proxy and account management tools. This version has removed these control plane interfaces, keeping only scraping-related capabilities for a clean tool surface in Cursor / MCP clients.
 
 ## 🚀 Features
 
@@ -34,25 +41,21 @@ playwright install chromium
 Create a `.env` file in the root directory:
 
 ```env
-# Required: Thordata Credentials
+# Required: Thordata Credentials (scraping only)
 THORDATA_SCRAPER_TOKEN=your_scraper_token
 THORDATA_PUBLIC_TOKEN=your_public_token
 THORDATA_PUBLIC_KEY=your_public_key
 
-# Optional: Browser Automation specific creds (if different)
+# Optional: Browser Automation creds (Scraping Browser)
 THORDATA_BROWSER_USERNAME=cust-user
 THORDATA_BROWSER_PASSWORD=your_password
-
-# Optional: Residential Proxy credentials (for proxy.* tools)
-THORDATA_RESIDENTIAL_USERNAME=cust-user
-THORDATA_RESIDENTIAL_PASSWORD=your_password
 ```
 
 ## 🏃 Usage
 
-### Tool Exposure Modes (Recommended)
+### Tool Exposure Modes
 
-By default, the server exposes a **compact, competitor-style tool surface** (clean + practical):
+Current implementation provides **streamlined scraping tool surface only**, no longer exposing proxy and account management tools:
 
 - **SERP SCRAPER**: `serp` (actions: `search`, `batch_search`)
 - **WEB UNLOCKER**: `unlocker` (actions: `fetch`, `batch_fetch`)
@@ -60,11 +63,7 @@ By default, the server exposes a **compact, competitor-style tool surface** (cle
 - **BROWSER SCRAPER**: `browser` (actions: `navigate`, `snapshot`)
 - **Smart (auto tool + fallback)**: `smart_scrape`
 
-If you need the full advanced namespaces (`universal.*`, `tasks.*`, `proxy.*`, `account.*`, ...), start with:
-
-```bash
-thordata-mcp --transport stdio --expose-all-tools
-```
+> Note: This version focuses on scraping functionality and no longer includes `proxy.*` / `account.*` control plane tools.
 
 ### Web Scraper discovery (100+ tools, no extra env required)
 
@@ -141,13 +140,12 @@ Add this to your `claude_desktop_config.json`:
 
 Notes:
 - `THORDATA_BROWSER_USERNAME` / `THORDATA_BROWSER_PASSWORD` are required for `browser.*` tools (Scraping Browser).
-- If you use residential proxy tools (`proxy.*`), those credentials are separate (`THORDATA_RESIDENTIAL_USERNAME` / `THORDATA_RESIDENTIAL_PASSWORD`).
 
 ## 🛠️ Available Tools
 
-### Core Mode (Default, Recommended for Cursor/LLMs)
+### Available Tools (All directly related to scraping)
 
-Only **5 tools** are exposed by default:
+Current MCP Server only exposes the following **5 scraping-related tools**:
 
 - **`serp`**: action `search`, `batch_search`
 - **`unlocker`**: action `fetch`, `batch_fetch`
@@ -155,34 +153,7 @@ Only **5 tools** are exposed by default:
 - **`browser`**: action `navigate`, `snapshot`
 - **`smart_scrape`**: auto-pick structured tool; fallback to unlocker
 
-### Advanced Mode (`--expose-all-tools`)
-
-Expose the full namespaces for debugging/admin:
-- Data-plane: `serp.*`, `universal.*`, `browser.*`, `tasks.*`, `proxy.*`
-- Control-plane: `account.*`, `whitelist.*`, `proxy_users.*`, `unlimited.*`, `locations.*`
--   **`whitelist.add_ip(ip)`** - Add IP to whitelist
--   **`whitelist.delete_ip(ip)`** - Delete IP from whitelist
-
-#### Proxy Users Tools (`proxy_users.*`)
-
--   **`proxy_users.list()`** - List proxy sub-users
--   **`proxy_users.create(username, password, proxy_type=2)`** - Create proxy user
--   **`proxy_users.update(username, password, ...)`** - Update proxy user
--   **`proxy_users.delete(username)`** - Delete proxy user
-
-#### Unlimited Tools (`unlimited.*`)
-
--   **`unlimited.list_servers()`** - List unlimited proxy servers
--   **`unlimited.get_server_monitor(ins_id, region, start_time, end_time)`** - Get server metrics
--   **`unlimited.bind_user(ip, username)`** - Bind user to server
--   **`unlimited.unbind_user(ip, username)`** - Unbind user from server
-
-#### Locations Tools (`locations.*`)
-
--   **`locations.countries(proxy_type=2)`** - List available countries
--   **`locations.states(country_code, proxy_type=2)`** - List states for country
--   **`locations.cities(country_code, state_code=None, proxy_type=2)`** - List cities
--   **`locations.asn(country_code, proxy_type=2)`** - List ASN for country
+> Proxy network related APIs can still be used via other Thordata SDKs / HTTP APIs, but are not exposed through MCP to avoid introducing complex management operations in LLMs.
 
 ## 🏗️ Architecture
 
@@ -198,20 +169,13 @@ thordata_mcp/
 ├── browser_session.py   # Browser session management (Playwright)
 ├── aria_snapshot.py     # ARIA snapshot filtering
 └── tools/
-    ├── product_compact.py  # Compact 5-tool surface for MCP (serp/unlocker/web_scraper/browser/smart_scrape)
-    ├── product.py          # Full product-line tools (used in --expose-all-tools)
-    ├── data/               # Data-plane tools (structured namespace)
+    ├── product_compact.py  # Streamlined 5-tool entry point (serp/unlocker/web_scraper/browser/smart_scrape)
+    ├── product.py          # Full product implementation for internal use (reused by compact version)
+    ├── data/               # Data plane tools (only scraping-related namespaces retained)
     │   ├── serp.py         # serp.*
     │   ├── universal.py    # universal.*
     │   ├── browser.py      # browser.*
-    │   ├── tasks.py        # tasks.*
-    │   └── proxy.py        # proxy.*
-    └── control/            # Control-plane tools
-        ├── account.py      # account.*
-        ├── whitelist.py    # whitelist.*
-        ├── proxy_users.py  # proxy_users.*
-        ├── unlimited.py    # unlimited.*
-        └── locations.py    # locations.*
+    │   └── tasks.py        # tasks.*
 ```
 
 ## 🎯 Design Principles

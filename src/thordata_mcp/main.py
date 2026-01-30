@@ -55,12 +55,6 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print registered tool names to stderr and exit.",
     )
-    parser.add_argument(
-        "--expose-all-tools",
-        action="store_true",
-        default=False,
-        help="Expose all tools (default: compact 5-tool surface: serp, unlocker, web_scraper, browser, smart_scrape).",
-    )
     return parser
 
 
@@ -81,7 +75,8 @@ def main(argv: list[str] | None = None) -> None:
     mcp.settings.port = args.port
 
     # Register all tools (synchronously wraps async registrations)
-    register_all(mcp, expose_all=args.expose_all_tools)
+    # Current version only registers scraping-related tools (serp/unlocker/web_scraper/browser/smart_scrape)
+    register_all(mcp)
 
     # Inject debug routes if using HTTP transport and not disabled
     if args.transport == "streamable-http" and not args.no_debug_api:

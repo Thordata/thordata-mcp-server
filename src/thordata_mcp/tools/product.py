@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from typing import Any, Optional
 
 import aiohttp
@@ -89,9 +89,42 @@ def _extract_amazon_asin(url: str) -> str | None:
 
 def _hostname(url: str) -> str:
     try:
-        return (urlparse(url).hostname or "").lower()
+        host = (urlparse(url).hostname or "").lower()
+        # Normalize common subdomains to improve routing/heuristics.
+        # This makes checks like host == "google.com" work for "www.google.com".
+        for prefix in ("www.", "m."):
+            if host.startswith(prefix):
+                host = host[len(prefix) :]
+                break
+        return host
     except Exception:
         return ""
+
+
+def _is_google_search_url(url: str) -> bool:
+    """Return True if URL is a Google search results page we should route to SERP."""
+    host = _hostname(url)
+    if host != "google.com":
+        return False
+    try:
+        p = urlparse(url)
+    except Exception:
+        return False
+    if p.path != "/search":
+        return False
+    qs = parse_qs(p.query or "")
+    q = (qs.get("q") or [""])[0].strip()
+    return bool(q)
+
+
+def _extract_google_search_query(url: str) -> str | None:
+    try:
+        p = urlparse(url)
+        qs = parse_qs(p.query or "")
+        q = (qs.get("q") or [""])[0].strip()
+        return q or None
+    except Exception:
+        return None
 
 
 def _classify_error(e: Exception) -> tuple[str, str]:
@@ -116,7 +149,8 @@ def _extract_structured_from_html(html: str) -> dict[str, Any]:
     # title
     m = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
     if m:
-        out["title"] = re.sub(r"\s+", " ", m.group(1)).strip()
+        title = re.sub(r"\s+", " ", m.group(1)).strip()
+        out["title"] = title
 
     # meta description
     m = re.search(r'<meta[^>]+name=["\']description["\'][^>]+content=["\']([^"\']+)["\']', html, flags=re.IGNORECASE)
@@ -150,6 +184,35 @@ def _extract_structured_from_html(html: str) -> dict[str, Any]:
     # crude anti-bot hints
     if "captcha" in low or "are you a robot" in low or "/captcha/" in low:
         out["likely_blocked"] = True
+
+    # Crude error/404/500 page hints (help smart_scrape mark error pages instead of normal content)
+    error_phrases = [
+        "404",
+        "page not found",
+        "page you requested is unavailable",
+        "internal server error",
+        "500",
+        "temporarily unavailable",
+        "sorry, this page",
+        "dogs of amazon",  # Amazon anti-bot error page
+        "sorry! we couldn't find that page",
+        "access denied",
+        "forbidden",
+    ]
+    title_lower = out.get("title", "").lower() if isinstance(out.get("title"), str) else ""
+    is_error = any(ph in title_lower for ph in error_phrases) or any(ph in low for ph in error_phrases)
+    # Check if it's an Amazon anti-bot page (common pattern)
+    if "amazon" in low and ("dogs of amazon" in low or "page not found" in title_lower):
+        is_error = True
+    if is_error:
+        out["is_error_page"] = True
+        # Provide a rough HTTP status hint for upper-level logic branching
+        if any(p in title_lower for p in ["404", "page not found", "dogs of amazon"]):
+            out["http_status_hint"] = 404
+        elif any(p in title_lower for p in ["500", "internal server error"]):
+            out["http_status_hint"] = 500
+        elif "access denied" in low or "forbidden" in low:
+            out["http_status_hint"] = 403
 
     return out
 
@@ -255,9 +318,13 @@ def _normalize_extracted(extracted: dict[str, Any], *, url: str | None = None) -
         if isinstance(rc, (int, float, str)):
             out["reviews"] = rc
 
-    # Blocked hint passthrough
+    # Blocked / error hints passthrough
     if extracted.get("likely_blocked") is True:
         out["likely_blocked"] = True
+    if extracted.get("is_error_page") is True:
+        out["is_error_page"] = True
+        if "http_status_hint" in extracted:
+            out["http_status_hint"] = extracted.get("http_status_hint")
 
     return out
 
@@ -351,9 +418,17 @@ def _to_light_json(serp_json: Any) -> dict[str, Any]:
     return {"organic": items}
 
 def _candidate_tools_for_url(url: str, *, limit: int = 3) -> list[str]:
-    """Pick likely Web Scraper tools for a URL based on spider_name + url field."""
+    """Pick likely Web Scraper tools for a URL based on spider_name + url field.
+    
+    Returns empty list if no good matches found (to avoid false positives).
+    """
     host = _hostname(url)
     if not host:
+        return []
+
+    # Skip generic/example domains that shouldn't use Web Scraper tools
+    generic_domains = {"example.com", "example.org", "example.net", "test.com", "localhost"}
+    if host in generic_domains or host.endswith(".example.com"):
         return []
 
     tools, _ = _ensure_tools()
@@ -368,9 +443,72 @@ def _candidate_tools_for_url(url: str, *, limit: int = 3) -> list[str]:
         if not has_url_field:
             continue
 
+        # Early filtering: skip tools that clearly don't match the current site, avoid mis-selecting eBay/Crunchbase etc. for content sites like BBC/MDN
+        kl = k.lower()
+        # E-commerce platform tools: strict domain matching
+        if "amazon" in kl and "amazon" not in host:
+            continue
+        if "walmart" in kl and "walmart" not in host:
+            continue
+        if "ebay" in kl and "ebay" not in host:
+            continue
+        if "etsy" in kl and "etsy" not in host:
+            continue
+        if "shopify" in kl and "shopify" not in host and "myshopify" not in host:
+            continue
+        # Business/recruitment platform tools: strict domain matching
+        if "crunchbase" in kl and "crunchbase" not in host:
+            continue
+        if "glassdoor" in kl and "glassdoor" not in host:
+            continue
+        if "linkedin" in kl and "linkedin" not in host:
+            continue
+        if "indeed" in kl and "indeed" not in host:
+            continue
+        # Code/development platform tools: strict domain matching
+        if "github" in kl and "github" not in host:
+            continue
+        if "gitlab" in kl and "gitlab" not in host:
+            continue
+        if "bitbucket" in kl and "bitbucket" not in host:
+            continue
+        # Repository tools only work on GitHub/GitLab domains
+        if "repository" in kl and "github" not in host and "gitlab" not in host:
+            continue
+        # Google service tools: strict matching
+        if ("googlemaps" in kl or "google.maps" in kl) and "maps" not in host and "maps.google" not in host:
+            continue
+        # Google Shopping tools - skip pure google.com (especially search), only use on shopping-related hosts
+        if ("googleshopping" in kl or "google.shopping" in kl) and "shopping" not in host and host == "google.com":
+            continue  # Skip entirely instead of penalizing
+        # Social media tools: strict domain matching
+        if "twitter" in kl and "twitter" not in host and "x.com" not in host:
+            continue
+        if "facebook" in kl and "facebook" not in host:
+            continue
+        if "instagram" in kl and "instagram" not in host:
+            continue
+        if "tiktok" in kl and "tiktok" not in host:
+            continue
+        # Video platform tools: strict domain matching
+        if "youtube" in kl and "youtube" not in host and "youtu.be" not in host:
+            continue
+        if "vimeo" in kl and "vimeo" not in host:
+            continue
+
+        # GitHub tools: only match if URL looks like a repository (has /username/repo pattern)
+        if "github" in k.lower() and "github" in host:
+            import re
+            # Check if URL has repository pattern (github.com/username/repo)
+            repo_pattern = r'github\.(com|io)/[^/]+/[^/\s?#]+'
+            if not re.search(repo_pattern, url.lower()):
+                # Not a repository URL (e.g., github.com homepage), skip GitHub tools
+                continue
+        
         score = 0
+        # Strong match: spider name matches hostname (exact or substring match)
         if spider and (spider in host or host.endswith(spider) or spider.endswith(host)):
-            score += 10
+            score += 20  # Increased from 10 to require stronger matches
         # Prefer ByUrl tools (tend to be most robust)
         if "byurl" in k.lower() or k.lower().endswith(".productbyurl"):
             score += 5
@@ -379,7 +517,10 @@ def _candidate_tools_for_url(url: str, *, limit: int = 3) -> list[str]:
             score += 3
         if ("youtube" in host or "youtu" in host) and ".video." in k:
             score += 3
-        if score > 0:
+        
+        # Only include tools with positive score (strong matches)
+        # Require minimum score of 5 to avoid weak matches
+        if score >= 5:
             scored.append((score, k))
 
     scored.sort(key=lambda x: (-x[0], x[1]))
@@ -399,6 +540,7 @@ def _candidate_tools_for_url(url: str, *, limit: int = 3) -> list[str]:
 def _guess_tool_for_url(url: str) -> tuple[str | None, dict[str, Any]]:
     """Best-effort selection of a structured Web Scraper tool from a URL."""
     u = url.lower()
+    host = _hostname(url)
 
     # YouTube
     if "youtube.com" in u or "youtu.be" in u:
@@ -406,6 +548,23 @@ def _guess_tool_for_url(url: str) -> tuple[str | None, dict[str, Any]]:
         if vid:
             return "thordata.tools.video.YouTube.VideoInfo", {"video_id": vid}
         return "thordata.tools.video.YouTube.VideoDownload", {"url": url}
+    
+    # GitHub - only use RepositoryByUrl for actual repository URLs, not homepage
+    if "github.com" in u or "github.io" in u:
+        # Check if it's a repository URL (has /username/repo format, not just github.com)
+        import re
+        # Pattern: github.com/username/repo (with at least one path segment after github.com)
+        repo_pattern = r'github\.(com|io)/[^/]+/[^/\s?#]+'
+        if re.search(repo_pattern, u):
+            # Make sure it's not just github.com or github.com/
+            path_match = re.search(r'github\.(com|io)/([^/\s?#]+)', u)
+            if path_match:
+                path_after_domain = path_match.group(2)
+                # If there's a path segment after github.com, check if it looks like a repo path
+                if '/' in u.split('github.com/', 1)[-1].split('?')[0].split('#')[0]:
+                    return "thordata.tools.code.GitHub.RepositoryByUrl", {"url": url}
+        # For GitHub homepage (github.com, github.com/, etc.), return None to use Unlocker
+        return None, {}
 
     # Amazon
     if "amazon." in u:
@@ -1156,20 +1315,115 @@ def register(mcp: FastMCP) -> None:
         """Auto-select a Web Scraper task for the URL; fallback to Unlocker if needed."""
         await safe_ctx_info(ctx, f"smart_scrape url={url!r} prefer_structured={prefer_structured} goal={goal!r}")
 
-        # 1) Try to select a Web Scraper tool automatically (extensible)
-        selected_tool, selected_params = _guess_tool_for_url(url)
-        candidates: list[tuple[str, dict[str, Any]]] = []
-        # Only keep guessed tool if it truly exists in the catalog
-        _, tools_map = _ensure_tools()
-        if selected_tool and selected_tool in tools_map:
-            candidates.append((selected_tool, selected_params))
+        # 0) Skip Web Scraper for certain URL patterns that are better handled by Unlocker
+        host = _hostname(url)
+        url_lower = url.lower()
+        selected_tool: str | None = None
+        selected_params: dict[str, Any] = {}
+        candidates: list[tuple[str, dict[str, Any]]] = []  # Initialize candidates list
 
-        # 1b) If no strong guess, pick a few candidates by hostname + "has url field"
-        if not candidates:
-            for k in _candidate_tools_for_url(url, limit=3):
-                candidates.append((k, {"url": url}))
+        # Special-case: Google search pages are best handled by SERP (more reliable than Unlocker).
+        if prefer_structured and _is_google_search_url(url):
+            q = _extract_google_search_query(url)
+            await safe_ctx_info(ctx, f"smart_scrape: Google search detected, routing to SERP q={q!r}")
+            try:
+                client = await ServerContext.get_client()
+                req = SerpRequest(
+                    query=str(q or ""),
+                    engine=Engine.GOOGLE,
+                    num=10,
+                    start=0,
+                    country=None,
+                    language=None,
+                    google_domain="google.com",
+                    gl=None,
+                    hl=None,
+                    location=None,
+                    uule=None,
+                    ludocid=None,
+                    kgmid=None,
+                    extra_params={},
+                )
+                data = await client.serp_search_advanced(req)
+                return ok_response(
+                    tool="smart_scrape",
+                    input={"url": url, "prefer_structured": prefer_structured, "preview": preview},
+                    output={
+                        "path": "SERP",
+                        "serp": {"engine": "google", "q": q, "num": 10, "start": 0},
+                        "result": data,
+                        "structured": {"url": url, "query": q, "engine": "google"},
+                        "candidates": [],
+                        "tried": [],
+                    },
+                )
+            except Exception as e:
+                # If SERP fails, continue with existing flow (Unlocker fallback below).
+                await safe_ctx_info(ctx, f"smart_scrape: SERP routing failed, falling back. err={e}")
+        # Skip Web Scraper for Google search URLs (better handled by SERP or Unlocker)
+        skip_web_scraper = False
+        generic_domains = {"example.com", "example.org", "example.net", "test.com", "localhost"}
+        if host == "google.com" and "/search" in url_lower:
+            await safe_ctx_info(ctx, f"smart_scrape: Google search URL detected, skipping Web Scraper and using Unlocker")
+            skip_web_scraper = True
+        elif host in generic_domains or (host and host.endswith(".example.com")):
+            await safe_ctx_info(ctx, f"smart_scrape: Generic domain {host} detected, skipping Web Scraper and using Unlocker")
+            skip_web_scraper = True
+        
+        if not skip_web_scraper:
+                # 1) Try to select a Web Scraper tool automatically (extensible)
+                guessed_tool, guessed_params = _guess_tool_for_url(url)
+                selected_tool = guessed_tool
+                selected_params = guessed_params
+                # Only keep guessed tool if it truly exists in the catalog
+                _, tools_map = _ensure_tools()
+                if selected_tool and selected_tool in tools_map:
+                    candidates.append((selected_tool, selected_params))
+
+                # 1b) If no strong guess, pick a few candidates by hostname + "has url field"
+                # Only do this if we have a strong match (score > 0)
+                if not candidates:
+                    candidate_keys = _candidate_tools_for_url(url, limit=3)
+                    # Only use candidates if we have good matches (avoid false positives)
+                    # Filter out obviously wrong tools (like GitHub for non-GitHub URLs)
+                    if not host:
+                        host = _hostname(url)
+                    filtered_candidates = []
+                    for k in candidate_keys:
+                        # Additional GitHub filtering: only use RepositoryByUrl for actual repository URLs
+                        if "github" in k.lower() and "repository" in k.lower() and "github" in host:
+                            import re
+                            repo_pattern = r'github\.(com|io)/[^/]+/[^/\s?#]+'
+                            if not re.search(repo_pattern, url.lower()):
+                                # Not a repository URL (e.g., github.com homepage), skip
+                                continue
+                        # Skip GitHub tools for non-GitHub URLs
+                        if "github" in k.lower() and host and "github" not in host.lower():
+                            continue
+                        # Skip repository tools for non-repo URLs
+                        if "repository" in k.lower() and host and "github" not in host.lower() and "gitlab" not in host.lower():
+                            continue
+                        # Skip Amazon tools for non-Amazon URLs
+                        if "amazon" in k.lower() and host and "amazon" not in host.lower():
+                            continue
+                        # Skip Walmart tools for non-Walmart URLs
+                        if "walmart" in k.lower() and host and "walmart" not in host.lower():
+                            continue
+                        # Skip Google Shopping tools for generic Google URLs (especially search URLs)
+                        if ("googleshopping" in k.lower() or "google.shopping" in k.lower()):
+                            if host == "google.com" or "/search" in url_lower:
+                                continue
+                        filtered_candidates.append(k)
+                    
+                    if filtered_candidates:
+                        for k in filtered_candidates:
+                            candidates.append((k, {"url": url}))
+                    else:
+                        # No good candidates found, skip Web Scraper and go straight to Unlocker
+                        await safe_ctx_info(ctx, f"smart_scrape: No suitable Web Scraper tool found for {url}, using Unlocker")
 
         # 2) Execute Web Scraper candidates (try a couple) before falling back
+        # Only try Web Scraper if we have good candidates and prefer_structured is True
         if prefer_structured and candidates:
             tried: list[dict[str, Any]] = []
             for tool, params in candidates[:3]:
@@ -1181,14 +1435,31 @@ def register(mcp: FastMCP) -> None:
                     file_type="json",
                     ctx=ctx,
                 )
-                if isinstance(r, dict) and r.get("ok") is True:
+                # Check if task succeeded (status should be Ready/Success, not Failed)
+                result_obj = r.get("output") if isinstance(r.get("output"), dict) else {}
+                status = result_obj.get("status", "").lower() if isinstance(result_obj, dict) else ""
+                
+                # If status is Failed, don't try more Web Scraper tools - go to Unlocker
+                # Also check if r.get("ok") is False, which indicates the tool call itself failed
+                if status == "failed" or (isinstance(r, dict) and r.get("ok") is False):
+                    await safe_ctx_info(ctx, f"smart_scrape: Web Scraper tool {tool} failed (status={status}, ok={r.get('ok')}), falling back to Unlocker")
+                    tried.append({
+                        "tool": tool,
+                        "ok": r.get("ok"),
+                        "status": status,
+                        "error": (r.get("error") or {}) if isinstance(r, dict) else {},
+                    })
+                    break  # Exit loop and go to Unlocker fallback
+                
+                # Only return success if both ok is True AND status is not failed
+                if isinstance(r, dict) and r.get("ok") is True and status not in {"failed", "error", "failure"}:
                     # Optional: fetch a tiny preview so smart_scrape returns immediate structured fields
-                    result_obj = r.get("output") if isinstance(r.get("output"), dict) else {}
                     download_url = result_obj.get("download_url") if isinstance(result_obj, dict) else None
                     preview_obj: dict[str, Any] | None = None
                     structured: dict[str, Any] = {"url": url}
                     if preview and isinstance(download_url, str) and download_url:
                         preview_obj = await _fetch_json_preview(download_url, max_chars=int(preview_max_chars))
+                        # Try to use preview data even if JSON parsing failed but we have raw data
                         if preview_obj.get("ok") is True:
                             data = preview_obj.get("data")
                             # many tasks return a list of records
@@ -1196,6 +1467,12 @@ def register(mcp: FastMCP) -> None:
                                 structured = _normalize_record(data[0], url=url)
                             elif isinstance(data, dict):
                                 structured = _normalize_record(data, url=url)
+                        elif preview_obj.get("status") == 200 and preview_obj.get("raw"):
+                            # JSON parsing failed but we have raw data - try to extract basic info
+                            raw = preview_obj.get("raw", "")
+                            if raw:
+                                # Try to extract basic fields from raw text if possible
+                                structured = {"url": url, "raw_preview": raw[:500]}  # Limit raw preview size
                     return ok_response(
                         tool="smart_scrape",
                         input={"url": url, "goal": goal, "prefer_structured": prefer_structured, "preview": preview},
@@ -1209,29 +1486,109 @@ def register(mcp: FastMCP) -> None:
                             "tried": tried,
                         },
                     )
-                tried.append({"tool": tool, "ok": r.get("ok"), "error": (r.get("error") or {}) if isinstance(r, dict) else {}})
+                # Task failed or returned error - log and try next candidate
+                # (This code should not be reached if status == "failed" due to break above)
+                error_info = (r.get("error") or {}) if isinstance(r, dict) else {}
+                tried.append({
+                    "tool": tool,
+                    "ok": r.get("ok"),
+                    "status": status,
+                    "error": error_info,
+                })
+                await safe_ctx_info(ctx, f"smart_scrape: Tool {tool} failed (status={status}), trying next candidate or Unlocker")
 
         # 3) Fallback to Unlocker
         client = await ServerContext.get_client()
-        data = await client.universal_scrape(url=url, js_render=True, output_format="html")
-        html = str(data) if not isinstance(data, str) else data
-        extracted = _extract_structured_from_html(html) if html else {}
-        structured = _normalize_extracted(extracted, url=url)
-        warning = None
-        if structured.get("likely_blocked") is True:
-            warning = "likely_blocked: page appears to contain anti-bot/captcha content; consider changing proxy/cookies or using Browser Scraper."
-        return ok_response(
-            tool="smart_scrape",
-            input={"url": url, "goal": goal, "prefer_structured": prefer_structured, "preview": preview},
-            output={
-                "path": "WEB_UNLOCKER",
-                "unlocker": {"html": html},
-                "extracted": extracted,
-                "structured": structured,
-                "warning": warning,
-                "selected_tool": selected_tool,
-                "selected_params": selected_params,
-                "candidates": [c[0] for c in candidates],
-            },
-        )
+        try:
+            # Use a longer timeout for Unlocker (up to max_wait_seconds)
+            unlocker_timeout = min(max_wait_seconds, 120)  # Cap at 120 seconds for Unlocker
+            data = await client.universal_scrape(url=url, js_render=True, output_format="html")
+            html = str(data) if not isinstance(data, str) else data
+            # Empty HTML: likely blocked by strong JS/anti-bot/login wall, mark as error page for caller decision
+            if not html or not html.strip() or len(html.strip()) < 100:
+                # Empty or very short HTML usually indicates blocking
+                extracted: dict[str, Any] = {
+                    "is_error_page": True,
+                    "http_status_hint": 0,
+                    "empty_html": True,
+                    "likely_blocked": True,
+                }
+                structured = _normalize_extracted(extracted, url=url)
+                warning = "empty_html: page returned empty or very short content; likely blocked by anti-bot or requires login. Consider using Browser Scraper."
+            else:
+                extracted = _extract_structured_from_html(html)
+                structured = _normalize_extracted(extracted, url=url)
+                warning = None
+                if structured.get("likely_blocked") is True:
+                    warning = "likely_blocked: page appears to contain anti-bot/captcha content; consider changing proxy/cookies or using Browser Scraper."
+                if structured.get("is_error_page") is True and structured.get("http_status_hint") in (404, 500, 0, 403):
+                    error_msg = "smart_scrape: page looks like an error/empty page based on HTML"
+                    if structured.get("http_status_hint") == 404:
+                        error_msg += " (404 Not Found)"
+                    elif structured.get("http_status_hint") == 403:
+                        error_msg += " (403 Forbidden/Access Denied)"
+                    elif structured.get("http_status_hint") == 500:
+                        error_msg += " (500 Internal Server Error)"
+                    error_msg += "; consider verifying the URL or using SERP first."
+                    warning = (warning or "") + " " + error_msg if warning else error_msg
+            return ok_response(
+                tool="smart_scrape",
+                input={"url": url, "goal": goal, "prefer_structured": prefer_structured, "preview": preview},
+                output={
+                    "path": "WEB_UNLOCKER",
+                    "unlocker": {"html": html},
+                    "extracted": extracted,
+                    "structured": structured,
+                    "warning": warning,
+                    "selected_tool": selected_tool,
+                    "selected_params": selected_params,
+                    "candidates": [c[0] for c in candidates],
+                    "tried": tried if "tried" in locals() else [],
+                },
+            )
+        except asyncio.TimeoutError as e:
+            # Handle timeout specifically
+            await safe_ctx_info(ctx, f"smart_scrape: Unlocker timed out after {unlocker_timeout}s: {e}")
+            return error_response(
+                tool="smart_scrape",
+                input={"url": url, "goal": goal, "prefer_structured": prefer_structured, "preview": preview},
+                error_type="timeout_error",
+                code="E2003",
+                message=f"Unlocker request timed out after {unlocker_timeout} seconds. The page may be slow to load or blocked.",
+                details={
+                    "selected_tool": selected_tool,
+                    "candidates": [c[0] for c in candidates],
+                    "tried": tried if "tried" in locals() else [],
+                    "timeout_seconds": unlocker_timeout,
+                },
+            )
+        except Exception as e:
+            # If Unlocker also fails, return error with context
+            await safe_ctx_info(ctx, f"smart_scrape: Unlocker also failed: {e}")
+            error_msg = str(e)
+            # Extract more useful error information
+            if "504" in error_msg or "Gateway Timeout" in error_msg:
+                error_type = "timeout_error"
+                error_code = "E2003"
+                error_message = f"Unlocker request timed out (504 Gateway Timeout). The page may be slow to load or blocked."
+            elif "timeout" in error_msg.lower():
+                error_type = "timeout_error"
+                error_code = "E2003"
+                error_message = f"Unlocker request timed out: {error_msg}"
+            else:
+                error_type = "network_error"
+                error_code = "E2002"
+                error_message = f"Both Web Scraper and Unlocker failed. Last error: {error_msg}"
+            return error_response(
+                tool="smart_scrape",
+                input={"url": url, "goal": goal, "prefer_structured": prefer_structured, "preview": preview},
+                error_type=error_type,
+                code=error_code,
+                message=error_message,
+                details={
+                    "selected_tool": selected_tool,
+                    "candidates": [c[0] for c in candidates],
+                    "tried": tried if "tried" in locals() else [],
+                },
+            )
 

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thordata-mcp-server"
-version = "0.4.1"
+version = "0.4.2"
 description = "Official MCP Server for Thordata."
 authors = [{name = "Thordata Developer Team", email = "support@thordata.com"}]
 readme = "README.md"
