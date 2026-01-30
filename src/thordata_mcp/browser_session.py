@@ -70,17 +70,49 @@ class BrowserSession:
         settings = get_settings()
         user = settings.THORDATA_BROWSER_USERNAME
         pwd = settings.THORDATA_BROWSER_PASSWORD
-        
+
         if not user or not pwd:
             raise ValueError(
                 "Missing browser credentials. Set THORDATA_BROWSER_USERNAME and THORDATA_BROWSER_PASSWORD. "
                 "Note: Browser credentials are separate from residential proxy credentials."
             )
-        
-        ws_url = self._client.get_browser_connection_url(username=user, password=pwd)
-        browser = await playwright.chromium.connect_over_cdp(ws_url)
-        self._browsers[domain] = browser
-        return browser
+
+        # Retry logic with exponential backoff
+        max_retries = 3
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                ws_url = self._client.get_browser_connection_url(username=user, password=pwd)
+                logger.debug(f"Attempt {attempt + 1}/{max_retries}: Connecting to {ws_url[:50]}...")
+                browser = await playwright.chromium.connect_over_cdp(ws_url)
+                logger.info(f"Successfully connected to browser for domain {domain}")
+                self._browsers[domain] = browser
+                return browser
+            except Exception as e:
+                last_error = e
+                logger.warning(
+                    f"Browser connection attempt {attempt + 1}/{max_retries} failed: {e}"
+                )
+
+                if attempt < max_retries - 1:
+                    import asyncio
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.info(f"Retrying in {wait_time} seconds...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    logger.error(
+                        f"Failed to connect to browser after {max_retries} attempts. "
+                        f"Last error: {e}"
+                    )
+                    logger.error(f"Credentials: username={user[:5]}*** (length={len(user)})")
+                    logger.error(f"WebSocket URL: {ws_url[:50]}...")
+
+        # If all retries failed, raise the last error
+        raise RuntimeError(
+            f"Failed to connect to Thordata Scraping Browser after {max_retries} attempts. "
+            f"Last error: {last_error}"
+        ) from last_error
 
     async def get_page(self, url: Optional[str] = None) -> Page:
         """Get or create a page for the current (or provided) domain."""

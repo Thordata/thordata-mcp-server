@@ -18,6 +18,79 @@ logger = logging.getLogger("thordata_mcp")
 
 
 # ---------------------------------------------------------------------------
+# Enhanced error diagnostics
+# ---------------------------------------------------------------------------
+
+def get_error_suggestion(error_type: str, url: Optional[str] = None) -> str:
+    """
+    Provide helpful suggestions based on error type.
+
+    Args:
+        error_type: Type of error encountered
+        url: Optional URL that caused the error
+
+    Returns:
+        Helpful suggestion string
+    """
+    suggestions = {
+        "timeout": "The request timed out. Try enabling JS rendering or check if the site is accessible.",
+        "blocked": "The request was blocked (403/CAPTCHA). The site may have anti-bot protection.",
+        "parse_failed": "Failed to parse the response. The site structure may have changed.",
+        "not_found": "The requested resource was not found (404).",
+        "upstream_timeout": "The upstream service timed out (504). Try again later.",
+        "upstream_internal_error": "The upstream service encountered an error (500). Try again later.",
+        "network_error": "Network error occurred. Check your internet connection and Thordata service status.",
+        "config_error": "Configuration error. Check your API credentials in .env file.",
+    }
+
+    suggestion = suggestions.get(error_type, "An unexpected error occurred.")
+
+    if url and error_type == "timeout":
+        suggestion += f" URL: {url}"
+
+    return suggestion
+
+
+def diagnose_scraping_error(error: Exception, url: Optional[str] = None) -> dict[str, Any]:
+    """
+    Diagnose a scraping error and provide detailed information.
+
+    Args:
+        error: The exception that occurred
+        url: Optional URL that was being scraped
+
+    Returns:
+        Dictionary with diagnostic information
+    """
+    error_info = {
+        "error_type": type(error).__name__,
+        "error_message": str(error),
+        "url": url,
+        "timestamp": logging.Formatter().formatTime(logging.LogRecord(
+            name="", level=0, pathname="", lineno=0,
+            msg="", args=(), exc_info=None
+        )),
+    }
+
+    # Add specific diagnostics based on error type
+        if isinstance(error, ThordataAPIError):
+            error_info["api_code"] = getattr(error, "code", None)
+            error_info["api_payload"] = getattr(error, "payload", None)
+            # Keep a stable error_type for callers while still providing a suggestion
+            error_info["suggestion"] = get_error_suggestion("upstream_internal_error", url)
+    elif isinstance(error, ThordataNetworkError):
+        error_info["suggestion"] = get_error_suggestion("network_error", url)
+    elif isinstance(error, ThordataConfigError):
+        error_info["suggestion"] = get_error_suggestion("config_error", url)
+    elif "timeout" in str(error).lower():
+        error_info["suggestion"] = get_error_suggestion("timeout", url)
+    else:
+        error_info["suggestion"] = "An unexpected error occurred. Check logs for details."
+
+    return error_info
+
+
+# ---------------------------------------------------------------------------
 # Safe Context helpers (for HTTP mode compatibility)
 # ---------------------------------------------------------------------------
 
@@ -118,13 +191,22 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
             elif "subtitles_error" in msg_l or "unable to download api page" in msg_l:
                 error_type = "media_backend_error"
                 norm_code = "E2107"
+
+            # Attach richer diagnostics without breaking existing callers
+            url = None
+            if "url" in kwargs:
+                url = kwargs.get("url")
+            elif "params" in kwargs and isinstance(kwargs.get("params"), dict):
+                url = kwargs["params"].get("url")
+
+            diagnostic = diagnose_scraping_error(e, url=url)
             return error_response(
                 tool=func.__name__,
                 input={k: v for k, v in kwargs.items() if k != "ctx"},
                 error_type=error_type,
                 code=norm_code,
                 message=msg,
-                details={"code": code, "payload": payload},
+                details={"code": code, "payload": payload, "diagnostic": diagnostic},
             )
         except ThordataNetworkError as e:
             err_str = str(e)
@@ -136,13 +218,21 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
                 error_code = "E2002"
                 err_type = "network_error"
                 msg = "Network error: could not reach Thordata services."
+
+            url = None
+            if "url" in kwargs:
+                url = kwargs.get("url")
+            elif "params" in kwargs and isinstance(kwargs.get("params"), dict):
+                url = kwargs["params"].get("url")
+
+            diagnostic = diagnose_scraping_error(e, url=url)
             return error_response(
                 tool=func.__name__,
                 input={k: v for k, v in kwargs.items() if k != "ctx"},
                 error_type=err_type,
                 code=error_code,
                 message=msg,
-                details=err_str,
+                details={"raw_error": err_str, "diagnostic": diagnostic},
             )
         except Exception as e:  # pragma: no cover
             # Use logger.error instead of logger.exception to avoid rich traceback issues

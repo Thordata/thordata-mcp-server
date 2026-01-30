@@ -8,6 +8,7 @@ from mcp.server.fastmcp import Context, FastMCP
 
 from thordata_mcp.config import settings
 from thordata_mcp.context import ServerContext
+from thordata_mcp.monitoring import PerformanceTimer
 from thordata_mcp.utils import (
     error_response,
     handle_mcp_errors,
@@ -328,16 +329,17 @@ def register(mcp: FastMCP) -> None:
             
             fetch_format = "html" if fmt in {"markdown", "md"} else fmt
             await safe_ctx_info(ctx, f"unlocker.fetch url={url!r} format={fmt} js_render={js_render}")
-            data = await client.universal_scrape(
-                url=url,
-                js_render=js_render,
-                output_format=fetch_format,
-                country=country,
-                block_resources=block_resources,
-                wait=wait_seconds,
-                wait_for=wait_for,
-                **extra_params,
-            )
+            with PerformanceTimer(tool="unlocker.fetch", url=url):
+                data = await client.universal_scrape(
+                    url=url,
+                    js_render=js_render,
+                    output_format=fetch_format,
+                    country=country,
+                    block_resources=block_resources,
+                    wait=wait_seconds,
+                    wait_for=wait_for,
+                    **extra_params,
+                )
             if fetch_format == "png":
                 import base64
 
@@ -374,16 +376,17 @@ def register(mcp: FastMCP) -> None:
                 wait_seconds = int(wait_ms / 1000) if isinstance(wait_ms, (int, float)) else None
                 extra_params = r.get("extra_params") if isinstance(r.get("extra_params"), dict) else {}
                 async with sem:
-                    data = await client.universal_scrape(
-                        url=url,
-                        js_render=js_render,
-                        output_format=fetch_format,
-                        country=r.get("country"),
-                        block_resources=r.get("block_resources"),
-                        wait=wait_seconds,
-                        wait_for=r.get("wait_for"),
-                        **extra_params,
-                    )
+                    with PerformanceTimer(tool="unlocker.batch_fetch", url=url):
+                        data = await client.universal_scrape(
+                            url=url,
+                            js_render=js_render,
+                            output_format=fetch_format,
+                            country=r.get("country"),
+                            block_resources=r.get("block_resources"),
+                            wait=wait_seconds,
+                            wait_for=r.get("wait_for"),
+                            **extra_params,
+                        )
                 if fetch_format == "png":
                     import base64
 
@@ -893,7 +896,8 @@ def register(mcp: FastMCP) -> None:
 
         client = await ServerContext.get_client()
         try:
-            html = await client.universal_scrape(url=url, js_render=True, output_format="html")
+            with PerformanceTimer(tool="smart_scrape.unlocker", url=url):
+                html = await client.universal_scrape(url=url, js_render=True, output_format="html")
             html_str = str(html) if not isinstance(html, str) else html
             extracted = _extract_structured_from_html(html_str) if html_str else {}
             structured = _normalize_extracted(extracted, url=url)

@@ -33,7 +33,19 @@ class Settings(BaseSettings):
     # Optional browser-specific credentials (scraping browser)
     THORDATA_BROWSER_USERNAME: str | None = None
     THORDATA_BROWSER_PASSWORD: str | None = None
-    
+
+    # Performance and timeout configuration
+    UNLOCKER_DEFAULT_TIMEOUT: int = 30  # Default timeout for unlocker requests (seconds)
+    UNLOCKER_MAX_RETRIES: int = 2  # Maximum number of retries
+    UNLOCKER_RETRY_BACKOFF: float = 2.0  # Exponential backoff factor for retries
+
+    SERP_DEFAULT_TIMEOUT: int = 15  # Default timeout for SERP requests (seconds)
+    TASKS_DEFAULT_TIMEOUT: int = 60  # Default timeout for task-based scraping (seconds)
+
+    # Performance monitoring
+    ENABLE_PERFORMANCE_MONITORING: bool = True
+    SLOW_REQUEST_THRESHOLD: float = 10.0  # Log warning if request takes longer than this (seconds)
+
     # Logging
     LOG_LEVEL: str = "INFO"
     

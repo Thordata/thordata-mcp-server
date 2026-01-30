@@ -99,10 +99,10 @@ def matches_any_prefix_or_exact(value: str, allowlist: list[str]) -> bool:
 
 def tool_schema(t: type[ToolRequest]) -> dict[str, Any]:
     """Generate tool schema from ToolRequest class.
-    
+
     Args:
         t: ToolRequest subclass
-        
+
     Returns:
         Dictionary containing tool schema information
     """
@@ -112,11 +112,19 @@ def tool_schema(t: type[ToolRequest]) -> dict[str, Any]:
             "type": getattr(getattr(f.type, "__name__", None), "lower", lambda: str(f.type))(),
             "default": None if f.default is dataclasses.MISSING else f.default,
         }
+
+    key = tool_key(t)
+    spider_name = getattr(t, "SPIDER_NAME", None)
+
+    # Generate a friendly name: prefer SPIDER_NAME, fallback to class name
+    name = spider_name or key.split(".")[-1]
+
     return {
-        "tool_key": tool_key(t),  # Use "tool_key" for consistency with API
-        "key": tool_key(t),  # Keep "key" for backward compatibility
+        "name": name,  # Add name field for better UX
+        "tool_key": key,  # Use "tool_key" for consistency with API
+        "key": key,  # Keep "key" for backward compatibility
         "spider_id": getattr(t, "SPIDER_ID", None),
-        "spider_name": getattr(t, "SPIDER_NAME", None),
-        "group": tool_group_from_key(tool_key(t)),
+        "spider_name": spider_name,
+        "group": tool_group_from_key(key),
         "fields": fields,
     }

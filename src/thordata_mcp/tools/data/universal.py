@@ -7,6 +7,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from thordata import AsyncThordataClient
 
 from ...config import settings
+from ...monitoring import PerformanceTimer
 from ...utils import handle_mcp_errors, html_to_markdown_clean, ok_response, safe_ctx_info, truncate_content
 
 
@@ -46,16 +47,17 @@ def register(mcp: FastMCP) -> None:
         wait_seconds = int(wait_ms / 1000) if wait_ms is not None else None
 
         async with AsyncThordataClient(scraper_token=settings.THORDATA_SCRAPER_TOKEN) as client:
-            data = await client.universal_scrape(
-                url=url,
-                js_render=js_render,
-                output_format=output_format,
-                country=country,
-                block_resources=block_resources,
-                wait=wait_seconds,
-                wait_for=wait_for,
-                **kwargs,
-            )
+            with PerformanceTimer(tool="universal.fetch", url=url):
+                data = await client.universal_scrape(
+                    url=url,
+                    js_render=js_render,
+                    output_format=output_format,
+                    country=country,
+                    block_resources=block_resources,
+                    wait=wait_seconds,
+                    wait_for=wait_for,
+                    **kwargs,
+                )
 
             if output_format.lower() == "png":
                 # Convert PNG bytes to base64 string for JSON serialization
@@ -120,16 +122,17 @@ def register(mcp: FastMCP) -> None:
         wait_seconds = int(wait_ms / 1000) if wait_ms is not None else None
 
         async with AsyncThordataClient(scraper_token=settings.THORDATA_SCRAPER_TOKEN) as client:
-            html = await client.universal_scrape(
-                url=url,
-                js_render=js_render,
-                output_format="html",
-                country=country,
-                block_resources=block_resources,
-                wait=wait_seconds,
-                wait_for=wait_for,
-                **kwargs,
-            )
+            with PerformanceTimer(tool="universal.fetch_markdown", url=url):
+                html = await client.universal_scrape(
+                    url=url,
+                    js_render=js_render,
+                    output_format="html",
+                    country=country,
+                    block_resources=block_resources,
+                    wait=wait_seconds,
+                    wait_for=wait_for,
+                    **kwargs,
+                )
             html_str = str(html) if not isinstance(html, str) else html
             markdown = html_to_markdown_clean(html_str)
             markdown = truncate_content(markdown, max_length=max_chars)
@@ -187,16 +190,17 @@ def register(mcp: FastMCP) -> None:
                 wait_seconds = int(wait_ms / 1000) if isinstance(wait_ms, (int, float)) else None
 
                 async with sem:
-                    data = await client.universal_scrape(
-                        url=url,
-                        js_render=js_render,
-                        output_format=output_format,
-                        country=country,
-                        block_resources=block_resources,
-                        wait=wait_seconds,
-                        wait_for=wait_for,
-                        **extra_params,
-                    )
+                    with PerformanceTimer(tool="universal.batch_fetch", url=url):
+                        data = await client.universal_scrape(
+                            url=url,
+                            js_render=js_render,
+                            output_format=output_format,
+                            country=country,
+                            block_resources=block_resources,
+                            wait=wait_seconds,
+                            wait_for=wait_for,
+                            **extra_params,
+                        )
 
                 if output_format.lower() == "png":
                     # Convert PNG bytes to base64 string for JSON serialization
