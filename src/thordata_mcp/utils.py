@@ -73,11 +73,11 @@ def diagnose_scraping_error(error: Exception, url: Optional[str] = None) -> dict
     }
 
     # Add specific diagnostics based on error type
-        if isinstance(error, ThordataAPIError):
-            error_info["api_code"] = getattr(error, "code", None)
-            error_info["api_payload"] = getattr(error, "payload", None)
-            # Keep a stable error_type for callers while still providing a suggestion
-            error_info["suggestion"] = get_error_suggestion("upstream_internal_error", url)
+    if isinstance(error, ThordataAPIError):
+        error_info["api_code"] = getattr(error, "code", None)
+        error_info["api_payload"] = getattr(error, "payload", None)
+        # Keep a stable error_type for callers while still providing a suggestion
+        error_info["suggestion"] = get_error_suggestion("upstream_internal_error", url)
     elif isinstance(error, ThordataNetworkError):
         error_info["suggestion"] = get_error_suggestion("network_error", url)
     elif isinstance(error, ThordataConfigError):
