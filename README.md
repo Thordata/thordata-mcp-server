@@ -2,14 +2,14 @@
 
 **Give your AI Agents real-time web scraping superpowers.**
 
-This MCP Server version has been **streamlined to focus on scraping**, concentrating on four core products:
+This MCP Server version has been **streamlined to focus on scraping**, concentrating on a compact, LLM‑friendly tool surface:
 
-- **SERP API** (Search result scraping)
+- **Search Engine** (LLM-friendly web search wrapper)
+- **SERP API** (Search result scraping, internal plumbing)
 - **Web Unlocker / Universal Scraper** (Universal page unlocking & scraping)
-- **Web Scraper API** (Structured task flow)
 - **Scraping Browser** (Browser-level scraping)
 
-Earlier versions exposed `proxy.*` / `account.*` / `proxy_users.*` proxy and account management tools. This version has removed these control plane interfaces, keeping only scraping-related capabilities for a clean tool surface in Cursor / MCP clients.
+Earlier versions exposed `proxy.*` / `account.*` / `proxy_users.*` proxy and account management tools, and a large `web_scraper` task surface. This version removes those control plane interfaces from MCP, keeping only scraping-related capabilities that are easy for LLMs to use.
 
 ## 🚀 Features
 
@@ -55,38 +55,15 @@ THORDATA_BROWSER_PASSWORD=your_password
 
 ### Tool Exposure Modes
 
-Current implementation provides **streamlined scraping tool surface only**, no longer exposing proxy and account management tools:
+Current implementation provides a **compact scraping tool surface**, optimized for Cursor / LLM tool callers:
 
-- **SERP SCRAPER**: `serp` (actions: `search`, `batch_search`)
-- **WEB UNLOCKER**: `unlocker` (actions: `fetch`, `batch_fetch`)
-- **WEB SCRAPER (100+ structured tasks + task management)**: `web_scraper` (actions: `catalog`, `groups`, `run`, `batch_run`, `status`, `status_batch`, `wait`, `result`, `result_batch`, `list_tasks`, `cancel`)
-- **BROWSER SCRAPER**: `browser` (actions: `navigate`, `snapshot`)
-- **Smart (auto tool + fallback)**: `smart_scrape`
+- **`search_engine`** (recommended for LLMs): high-level web search wrapper, returns a light `results[]` array with `title/link/description`. Internally delegates to the SERP backend.
+- **`search_engine_batch`**: batch variant of `search_engine` with per-item `ok/error` results.
+- **`unlocker`**: actions `fetch`, `batch_fetch` – universal page unlock & content extraction (HTML/Markdown), with per-item error reporting for batch.
+- **`browser`**: action `snapshot` – navigate (optional `url`) and capture an ARIA-focused snapshot for interactive elements.
+- **`smart_scrape`**: auto-picks the best scraper (SERP, Web Scraper, Unlocker) for a given URL and returns a unified, LLM-friendly response.
 
-> Note: This version focuses on scraping functionality and no longer includes `proxy.*` / `account.*` control plane tools.
-
-### Web Scraper discovery (100+ tools, no extra env required)
-
-Use `web_scraper` with `action="catalog"` / `action="groups"` to discover tools.
-This keeps Cursor/LLMs usable while still supporting **100+ tools** under a single entrypoint.
-
-```env
-# Default: curated + limit 60
-THORDATA_TASKS_LIST_MODE=curated
-THORDATA_TASKS_LIST_DEFAULT_LIMIT=60
-
-# Which groups are included when mode=curated
-THORDATA_TASKS_GROUPS=ecommerce,social,video,search,travel,code,professional
-
-# Optional safety/UX: restrict which tools can actually run
-# (comma-separated prefixes or exact tool keys)
-# Example:
-# THORDATA_TASKS_ALLOWLIST=thordata.tools.video.,thordata.tools.ecommerce.Amazon.ProductByAsin
-THORDATA_TASKS_ALLOWLIST=
-```
-
-If you want Cursor to **never** see the full 300+ tool list, keep `THORDATA_TASKS_LIST_MODE=curated`
-and optionally set `THORDATA_TASKS_ALLOWLIST` to the small subset you actually want to support.
+Internally, the server still uses structured SERP and Web Scraper capabilities, but they are not exposed as large tool surfaces by default to avoid overwhelming LLMs.
 
 ### Deployment (Optional)
 
@@ -141,19 +118,17 @@ Add this to your `claude_desktop_config.json`:
 Notes:
 - `THORDATA_BROWSER_USERNAME` / `THORDATA_BROWSER_PASSWORD` are required for `browser.*` tools (Scraping Browser).
 
-## 🛠️ Available Tools
+## 🛠️ Available Tools (Compact Surface)
 
-### Available Tools (All directly related to scraping)
+By default, the MCP server exposes a **small, LLM-friendly tool set**:
 
-Current MCP Server only exposes the following **5 scraping-related tools**:
+- **`search_engine`**: single-query web search (`params.q`, optional `params.num`, `params.engine`).
+- **`search_engine_batch`**: batch web search with per-item `ok/error` in `results[]`.
+- **`unlocker`**: universal scraping via `fetch` / `batch_fetch`.
+- **`browser`**: `snapshot` with optional `url`, `max_items`, and `max_chars`.
+- **`smart_scrape`**: smart router for `url` with optional preview limit parameters.
 
-- **`serp`**: action `search`, `batch_search`
-- **`unlocker`**: action `fetch`, `batch_fetch`
-- **`web_scraper`**: action `catalog`, `groups`, `run`, `batch_run`, `status`, `status_batch`, `wait`, `result`, `result_batch`, `list_tasks`, `cancel`
-- **`browser`**: action `navigate`, `snapshot`
-- **`smart_scrape`**: auto-pick structured tool; fallback to unlocker
-
-> Proxy network related APIs can still be used via other Thordata SDKs / HTTP APIs, but are not exposed through MCP to avoid introducing complex management operations in LLMs.
+Advanced / internal tools (e.g. low-level `serp.*`, full `web_scraper.*` surfaces, proxy/account control plane) remain available via HTTP APIs and SDKs, but are not exposed directly as MCP tools to keep the surface manageable for agents and LLMs.
 
 ## 🏗️ Architecture
 
@@ -168,14 +143,14 @@ thordata_mcp/
 ├── utils.py             # Common utilities (error handling, responses)
 ├── browser_session.py   # Browser session management (Playwright)
 ├── aria_snapshot.py     # ARIA snapshot filtering
-└── tools/
-    ├── product_compact.py  # Streamlined 5-tool entry point (serp/unlocker/web_scraper/browser/smart_scrape)
-    ├── product.py          # Full product implementation for internal use (reused by compact version)
-    ├── data/               # Data plane tools (only scraping-related namespaces retained)
-    │   ├── serp.py         # serp.*
-    │   ├── universal.py    # universal.*
-    │   ├── browser.py      # browser.*
-    │   └── tasks.py        # tasks.*
+    └── tools/
+        ├── product_compact.py  # Streamlined MCP entrypoint (search_engine / unlocker / browser / smart_scrape, plus batch variants)
+        ├── product.py          # Full product implementation for internal use (reused by compact version)
+        ├── data/               # Data plane tools (only scraping-related namespaces retained)
+        │   ├── serp.py         # SERP backend integration
+        │   ├── universal.py    # Universal / Unlocker backend integration
+        │   ├── browser.py      # Browser / Playwright helpers
+        │   └── tasks.py        # Structured scraping tasks (used by smart_scrape and internal flows)
 ```
 
 ## 🎯 Design Principles

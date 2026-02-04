@@ -6,6 +6,14 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Environment-driven configuration for the MCP server."""
 
+    # MCP tool exposure mode (BrightData-like)
+    # - rapid: minimal core tools
+    # - pro: all tools
+    # - custom: enable by THORDATA_GROUPS and THORDATA_TOOLS
+    THORDATA_MODE: str = "rapid"
+    THORDATA_GROUPS: str | None = None
+    THORDATA_TOOLS: str | None = None
+
     # Thordata credentials
     THORDATA_SCRAPER_TOKEN: str | None = None
     THORDATA_PUBLIC_TOKEN: str | None = None
@@ -20,9 +28,9 @@ class Settings(BaseSettings):
     # Tasks discovery UX (to avoid dumping hundreds of tools to the client by default)
     # - mode=curated: only return tools from THORDATA_TASKS_GROUPS, with pagination
     # - mode=all: return all discovered tools
-    # Default to listing ALL Web Scraper tasks, but paginated (no env changes required for “100+ tools” use-case).
-    THORDATA_TASKS_LIST_MODE: str = "all"
-    THORDATA_TASKS_LIST_DEFAULT_LIMIT: int = 100
+    # Default to curated mode to reduce tool selection noise for LLMs.
+    THORDATA_TASKS_LIST_MODE: str = "curated"
+    THORDATA_TASKS_LIST_DEFAULT_LIMIT: int = 60
     THORDATA_TASKS_GROUPS: str = "ecommerce,social,video,search,travel,code,professional"
 
     # Optional: restrict which SDK tool_keys are allowed to execute (safety/UX)
@@ -48,6 +56,9 @@ class Settings(BaseSettings):
 
     # Logging
     LOG_LEVEL: str = "INFO"
+    
+    # Debug tools exposure
+    THORDATA_DEBUG_TOOLS: bool = False
     
     class Config:
         env_file = ".env"

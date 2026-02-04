@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import functools
 import html2text
+import json
 import logging
+import uuid
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 from typing import Any, Callable, Optional
 
@@ -41,6 +43,9 @@ def get_error_suggestion(error_type: str, url: Optional[str] = None) -> str:
         "upstream_internal_error": "The upstream service encountered an error (500). Try again later.",
         "network_error": "Network error occurred. Check your internet connection and Thordata service status.",
         "config_error": "Configuration error. Check your API credentials in .env file.",
+        "auth_error": "Authentication failed. Verify THORDATA_PUBLIC_TOKEN/THORDATA_PUBLIC_KEY/THORDATA_SCRAPER_TOKEN in .env match your Dashboard credentials.",
+        "validation_error": "Parameter validation failed. Ensure 'params' is a dictionary object, not a string. Example: params={'url': 'https://example.com'}",
+        "json_error": "Invalid JSON in params. Use dictionary format: params={'url': 'https://example.com'} or valid JSON string: params='{\"url\":\"https://example.com\"}'",
     }
 
     suggestion = suggestions.get(error_type, "An unexpected error occurred.")
@@ -76,14 +81,27 @@ def diagnose_scraping_error(error: Exception, url: Optional[str] = None) -> dict
     if isinstance(error, ThordataAPIError):
         error_info["api_code"] = getattr(error, "code", None)
         error_info["api_payload"] = getattr(error, "payload", None)
-        # Keep a stable error_type for callers while still providing a suggestion
-        error_info["suggestion"] = get_error_suggestion("upstream_internal_error", url)
+        # Provide a best-effort suggestion based on backend error content.
+        payload = error_info.get("api_payload")
+        msg = str(getattr(error, "message", str(error)) or "")
+        payload_s = ""
+        if isinstance(payload, dict):
+            payload_s = " ".join(str(v) for v in payload.values())
+        combined = f"{msg} {payload_s}".lower()
+        if "sign authentication failed" in combined or "authentication failed" in combined or "invalid signature" in combined:
+            error_info["suggestion"] = get_error_suggestion("auth_error", url)
+        else:
+            error_info["suggestion"] = get_error_suggestion("upstream_internal_error", url)
     elif isinstance(error, ThordataNetworkError):
         error_info["suggestion"] = get_error_suggestion("network_error", url)
     elif isinstance(error, ThordataConfigError):
         error_info["suggestion"] = get_error_suggestion("config_error", url)
     elif "timeout" in str(error).lower():
         error_info["suggestion"] = get_error_suggestion("timeout", url)
+    elif isinstance(error, ValueError) and "params" in str(error).lower():
+        error_info["suggestion"] = get_error_suggestion("validation_error", url)
+    elif isinstance(error, json.JSONDecodeError) and "params" in str(error).lower():
+        error_info["suggestion"] = get_error_suggestion("json_error", url)
     else:
         error_info["suggestion"] = "An unexpected error occurred. Check logs for details."
 
@@ -113,8 +131,15 @@ async def safe_ctx_info(ctx: Optional[Any], message: str) -> None:
 # Structured response helpers (LLM-friendly)
 # ---------------------------------------------------------------------------
 
-def ok_response(*, tool: str, input: dict[str, Any], output: Any) -> dict[str, Any]:
-    return {"ok": True, "tool": tool, "input": input, "output": output}
+def ok_response(
+    *,
+    tool: str,
+    input: dict[str, Any],
+    output: Any,
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    rid = request_id or uuid.uuid4().hex
+    return {"ok": True, "tool": tool, "request_id": rid, "input": input, "output": output}
 
 
 def error_response(
@@ -125,11 +150,14 @@ def error_response(
     message: str,
     details: Any | None = None,
     code: str = "E0000",
+    request_id: str | None = None,
 ) -> dict[str, Any]:
     """Return a standardized error dict with machine-readable code."""
+    rid = request_id or uuid.uuid4().hex
     return {
         "ok": False,
         "tool": tool,
+        "request_id": rid,
         "input": input,
         "error": {"type": error_type, "code": code, "message": message, "details": details},
     }
@@ -176,6 +204,9 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
             if "captcha" in msg_l or "403" in msg_l:
                 error_type = "blocked"
                 norm_code = "E2101"
+            elif "sign authentication failed" in msg_l or "authentication failed" in msg_l or "invalid signature" in msg_l:
+                error_type = "auth_error"
+                norm_code = "E1002"
             elif "not collected" in msg_l or "failed to parse" in msg_l:
                 error_type = "parse_failed"
                 norm_code = "E2102"
@@ -252,9 +283,49 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
 # Helpers for HTML → Markdown & truncation
 # ---------------------------------------------------------------------------
 
+def _strip_large_data_urls(html: str, *, max_keep_chars: int = 256) -> str:
+    """Remove large inlined data: URLs (base64 fonts/images) to reduce token bloat.
+
+    Keeps small data URLs (<= max_keep_chars) to avoid breaking tiny icons.
+    """
+    import re
+
+    def _repl(m: re.Match[str]) -> str:
+        s = m.group(0)
+        if len(s) <= max_keep_chars:
+            return s
+        return 'data:...'
+
+    # Replace any data:... sequences inside quotes.
+    return re.sub(r"data:[^\s\"']+", _repl, html)
+
+
+def _extract_readable_html(html: str) -> str:
+    """Best-effort extraction of main readable content.
+
+    Prefer <main> or <article>. Fall back to full document if not found.
+    """
+    import re
+
+    # Very lightweight heuristics (no extra deps): keep the largest <main>/<article> block.
+    candidates: list[str] = []
+    for tag in ("main", "article"):
+        pattern = re.compile(rf"<{tag}[^>]*>([\\s\\S]*?)</{tag}>", re.IGNORECASE)
+        for m in pattern.finditer(html):
+            block = m.group(0)
+            if block:
+                candidates.append(block)
+    if not candidates:
+        return html
+    candidates.sort(key=len, reverse=True)
+    return candidates[0]
+
+
 def html_to_markdown_clean(html: str) -> str:
     try:
-        text = md(html, heading_style="ATX", strip=["script", "style", "nav", "footer", "iframe"])
+        html = _strip_large_data_urls(html)
+        html = _extract_readable_html(html)
+        text = md(html, heading_style="ATX", strip=["script", "style", "noscript", "nav", "footer", "iframe", "svg"])
         lines = [line.rstrip() for line in text.splitlines()]
         return "\n".join(line for line in lines if line)
     except Exception:

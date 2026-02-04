@@ -382,18 +382,96 @@ async def _fetch_json_preview(download_url: str, *, max_chars: int = 20_000) -> 
     """Fetch a small JSON preview from a download URL (best-effort, token-safe)."""
     if not download_url:
         return {"ok": False, "error": "missing_download_url"}
+    def _first_object_from_array_prefix(s: str) -> dict[str, Any] | None:
+        """Best-effort parse of the first JSON object in a JSON array prefix.
+
+        Works even if the overall array is truncated, as long as the first object is complete.
+        This avoids json.JSONDecoder.raw_decode failing when the prefix is cut mid-string.
+        """
+        s = s.lstrip()
+        if not s.startswith("["):
+            return None
+        start = s.find("{")
+        if start == -1:
+            return None
+
+        in_string = False
+        escape = False
+        depth = 0
+        begun = False
+        for i in range(start, len(s)):
+            ch = s[i]
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == "\\":
+                    escape = True
+                elif ch == "\"":
+                    in_string = False
+                continue
+            else:
+                if ch == "\"":
+                    in_string = True
+                    continue
+                if ch == "{":
+                    depth += 1
+                    begun = True
+                elif ch == "}":
+                    depth -= 1
+                    if begun and depth == 0:
+                        snippet = s[start : i + 1]
+                        try:
+                            obj = json.loads(snippet)
+                            return obj if isinstance(obj, dict) else None
+                        except Exception:
+                            return None
+        return None
+
     try:
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             async with session.get(download_url) as resp:
-                txt = await resp.text()
-                if len(txt) > max_chars:
-                    txt = txt[:max_chars]
+                # Stream small preview to avoid truncating mid-string (which breaks JSON parsing).
+                # We'll try to extract the first object from an array response, reading up to a hard cap.
+                hard_cap = max(max_chars, 200_000)
+                buf_parts: list[str] = []
+                total = 0
+                first_obj: dict[str, Any] | None = None
+
+                async for chunk in resp.content.iter_chunked(16_384):
+                    try:
+                        part = chunk.decode("utf-8", errors="ignore")
+                    except Exception:
+                        part = str(chunk)
+                    buf_parts.append(part)
+                    total += len(part)
+                    if total >= max_chars:
+                        # As soon as we reach the soft cap, try to parse first object.
+                        joined = "".join(buf_parts)
+                        first_obj = _first_object_from_array_prefix(joined)
+                        if first_obj is not None:
+                            break
+                    if total >= hard_cap:
+                        break
+
+                txt = "".join(buf_parts)
+                truncated = total >= hard_cap or len(txt) > max_chars
                 try:
                     data = json.loads(txt)
                 except Exception:
-                    return {"ok": False, "status": resp.status, "raw": txt}
-                return {"ok": True, "status": resp.status, "data": data}
+                    if first_obj is None:
+                        first_obj = _first_object_from_array_prefix(txt)
+                    if first_obj is not None:
+                        return {
+                            "ok": True,
+                            "status": resp.status,
+                            "data": [first_obj],
+                            "partial": True,
+                            "truncated": truncated,
+                            "note": "Decoded first array element from streamed prefix (best-effort preview).",
+                        }
+                    return {"ok": False, "status": resp.status, "raw": txt, "truncated": truncated}
+                return {"ok": True, "status": resp.status, "data": data, "truncated": truncated}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

@@ -108,9 +108,11 @@ def tool_schema(t: type[ToolRequest]) -> dict[str, Any]:
     """
     fields: dict[str, Any] = {}
     for name, f in t.__dataclass_fields__.items():  # type: ignore[attr-defined]
+        required = f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING  # type: ignore[attr-defined]
         fields[name] = {
             "type": getattr(getattr(f.type, "__name__", None), "lower", lambda: str(f.type))(),
             "default": None if f.default is dataclasses.MISSING else f.default,
+            "required": required,
         }
 
     key = tool_key(t)

@@ -298,16 +298,96 @@ def register(mcp: FastMCP) -> None:
 
     @mcp.tool(name="browser.click_ref", description="Click an element by its ref ID")
     @handle_mcp_errors
-    async def browser_click_ref(ref: str, element: str = "element") -> dict[str, Any]:
-        """Click an element using the [ref=X] ID from the snapshot."""
+    async def browser_click_ref(
+        ref: str,
+        element: str = "element",
+        wait_for_navigation_ms: Optional[int] = None,
+    ) -> dict[str, Any]:
+        """Click an element using the [ref=X] ID from the snapshot.
+        
+        Args:
+            ref: The ref ID from snapshot (e.g., ref-w545663wqs)
+            element: Description of the element for error messages
+            wait_for_navigation_ms: Optional wait time in ms to detect navigation after click
+        """
         session = await ServerContext.get_browser_session()
-        locator = await session.ref_locator(ref, element)
-        await locator.click(timeout=5_000)
-        return ok_response(
-            tool="browser.click_ref",
-            input={"ref": ref, "element": element},
-            output={"message": f"Successfully clicked {element}", "ref": ref},
-        )
+        page = await session.get_page()
+        
+        url_before = page.url
+        try:
+            locator = await session.ref_locator(ref, element)
+            await locator.click(timeout=5_000)
+            
+            # Check for navigation if requested
+            did_navigate = False
+            url_after = url_before
+            if wait_for_navigation_ms and wait_for_navigation_ms > 0:
+                import asyncio
+                await asyncio.sleep(wait_for_navigation_ms / 1000)
+                url_after = page.url
+                did_navigate = url_after != url_before
+            
+            return ok_response(
+                tool="browser.click_ref",
+                input={"ref": ref, "element": element, "wait_for_navigation_ms": wait_for_navigation_ms},
+                output={
+                    "message": f"Successfully clicked {element}",
+                    "ref": ref,
+                    "url_before": url_before,
+                    "url_after": url_after,
+                    "did_navigate": did_navigate,
+                },
+            )
+        except Exception as e:
+            # Enhanced error with diagnostics + self-heal for common browser lifecycle issues
+            from ...utils import error_response
+
+            err_s = str(e).lower()
+            did_reset = False
+            if any(k in err_s for k in [
+                "target closed",
+                "page closed",
+                "browser has been closed",
+                "execution context was destroyed",
+                "has been disposed",
+            ]):
+                try:
+                    session.reset_page()
+                    did_reset = True
+                except Exception:
+                    did_reset = False
+
+            # Try to get console and network diagnostics from session cache
+            try:
+                console_tail = session.get_console_tail(n=10)
+            except Exception:
+                console_tail = []
+            try:
+                network_tail = session.get_network_tail(n=20)
+            except Exception:
+                network_tail = []
+
+            hint = "Try taking a new snapshot to get fresh refs, or check if the element is still visible"
+            if did_reset:
+                hint = "Browser page was closed/reset. Take a new snapshot to get fresh refs, then retry the click."
+
+            return error_response(
+                tool="browser.click_ref",
+                input={"ref": ref, "element": element, "wait_for_navigation_ms": wait_for_navigation_ms},
+                error_type="browser_interaction_error",
+                code="E5001",
+                message=f"Failed to click element: {str(e)}",
+                details={
+                    "ref": ref,
+                    "element": element,
+                    "url_before": url_before,
+                    "url_after": page.url,
+                    "did_reset": did_reset,
+                    "hint": hint,
+                    "console_tail": console_tail,
+                    "network_tail": network_tail,
+                },
+            )
 
     @mcp.tool(
         name="browser.type_ref",
@@ -322,15 +402,41 @@ def register(mcp: FastMCP) -> None:
     ) -> dict[str, Any]:
         """Type text into an element using the [ref=X] ID."""
         session = await ServerContext.get_browser_session()
-        locator = await session.ref_locator(ref, element)
-        await locator.fill(text)
-        if submit:
-            await locator.press("Enter")
-        return ok_response(
-            tool="browser.type_ref",
-            input={"ref": ref, "text": text, "submit": submit, "element": element},
-            output={"message": "Typed into element", "ref": ref},
-        )
+        page = await session.get_page()
+        url_before = page.url
+        
+        try:
+            locator = await session.ref_locator(ref, element)
+            await locator.fill(text)
+            if submit:
+                await locator.press("Enter")
+            
+            return ok_response(
+                tool="browser.type_ref",
+                input={"ref": ref, "text": text, "submit": submit, "element": element},
+                output={
+                    "message": "Typed into element" + (" and submitted" if submit else ""),
+                    "ref": ref,
+                    "url_before": url_before,
+                    "url_after": page.url,
+                },
+            )
+        except Exception as e:
+            from ...utils import error_response
+            return error_response(
+                tool="browser.type_ref",
+                input={"ref": ref, "text": text, "submit": submit, "element": element},
+                error_type="browser_interaction_error",
+                code="E5002",
+                message=f"Failed to type into element: {str(e)}",
+                details={
+                    "ref": ref,
+                    "element": element,
+                    "url_before": url_before,
+                    "url_after": page.url,
+                    "hint": "Try taking a new snapshot to get fresh refs, or check if the element is still visible and editable",
+                },
+            )
 
     @mcp.tool(name="browser.screenshot_page", description="Take a screenshot of the current browser page")
     @handle_mcp_errors
