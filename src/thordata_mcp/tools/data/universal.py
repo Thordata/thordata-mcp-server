@@ -44,7 +44,7 @@ def register(mcp: FastMCP) -> None:
         )
 
         kwargs = extra_params or {}
-        wait_seconds = int(wait_ms / 1000) if wait_ms is not None else None
+        wait = int(wait_ms) if wait_ms is not None else None
 
         async with AsyncThordataClient(scraper_token=settings.THORDATA_SCRAPER_TOKEN) as client:
             with PerformanceTimer(tool="universal.fetch", url=url):
@@ -54,7 +54,7 @@ def register(mcp: FastMCP) -> None:
                     output_format=output_format,
                     country=country,
                     block_resources=block_resources,
-                    wait=wait_seconds,
+                    wait=wait,
                     wait_for=wait_for,
                     **kwargs,
                 )
@@ -119,7 +119,7 @@ def register(mcp: FastMCP) -> None:
         )
 
         kwargs = extra_params or {}
-        wait_seconds = int(wait_ms / 1000) if wait_ms is not None else None
+        wait = int(wait_ms) if wait_ms is not None else None
 
         async with AsyncThordataClient(scraper_token=settings.THORDATA_SCRAPER_TOKEN) as client:
             with PerformanceTimer(tool="universal.fetch_markdown", url=url):
@@ -129,7 +129,7 @@ def register(mcp: FastMCP) -> None:
                     output_format="html",
                     country=country,
                     block_resources=block_resources,
-                    wait=wait_seconds,
+                    wait=wait,
                     wait_for=wait_for,
                     **kwargs,
                 )
@@ -187,7 +187,7 @@ def register(mcp: FastMCP) -> None:
                 if not isinstance(extra_params, dict):
                     extra_params = {}
 
-                wait_seconds = int(wait_ms / 1000) if isinstance(wait_ms, (int, float)) else None
+                wait = int(wait_ms) if isinstance(wait_ms, (int, float)) else None
 
                 async with sem:
                     with PerformanceTimer(tool="universal.batch_fetch", url=url):
@@ -197,7 +197,7 @@ def register(mcp: FastMCP) -> None:
                             output_format=output_format,
                             country=country,
                             block_resources=block_resources,
-                            wait=wait_seconds,
+                            wait=wait,
                             wait_for=wait_for,
                             **extra_params,
                         )

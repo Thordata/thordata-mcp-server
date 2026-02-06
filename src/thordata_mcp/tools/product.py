@@ -963,7 +963,7 @@ def register(mcp: FastMCP) -> None:
             f"UNLOCKER fetch url={url!r} format={output_format} js_render={js_render} country={country} wait_for={wait_for!r}",
         )
         client = await ServerContext.get_client()
-        wait_seconds = int(wait_ms / 1000) if wait_ms is not None else None
+        wait = int(wait_ms) if wait_ms is not None else None
         kwargs = extra_params or {}
         fmt = (output_format or "html").strip().lower()
         # markdown is a presentation format; fetch html then convert
@@ -975,7 +975,7 @@ def register(mcp: FastMCP) -> None:
             output_format=fetch_format,
             country=country,
             block_resources=block_resources,
-            wait=wait_seconds,
+            wait=wait,
             wait_for=wait_for,
             **kwargs,
         )
@@ -1063,7 +1063,7 @@ def register(mcp: FastMCP) -> None:
             wait_ms = r.get("wait_ms")
             wait_for = r.get("wait_for")
             max_chars = int(r.get("max_chars", 20_000))
-            wait_seconds = int(wait_ms / 1000) if isinstance(wait_ms, (int, float)) else None
+            wait = int(wait_ms) if isinstance(wait_ms, (int, float)) else None
             extra_params = r.get("extra_params") or {}
             if not isinstance(extra_params, dict):
                 extra_params = {}
@@ -1078,7 +1078,7 @@ def register(mcp: FastMCP) -> None:
                         output_format=fetch_format,
                         country=country,
                         block_resources=block_resources,
-                        wait=wait_seconds,
+                        wait=wait,
                         wait_for=wait_for,
                         **extra_params,
                     )

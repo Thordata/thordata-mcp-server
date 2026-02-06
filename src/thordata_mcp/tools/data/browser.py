@@ -180,7 +180,7 @@ def register(mcp: FastMCP) -> None:
                 url=url,
                 js_render=js_render,
                 output_format="png",
-                wait=int(wait_ms / 1000) if wait_ms is not None else None,
+                wait=int(wait_ms) if wait_ms is not None else None,
                 extra_params={"device_scale": device_scale},
             )
             # Ensure bytes, then base64

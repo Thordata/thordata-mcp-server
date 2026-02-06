@@ -667,7 +667,7 @@ def register(mcp: FastMCP) -> None:
             fmt = str(p.get("output_format", "html") or "html").strip().lower()
             js_render = bool(p.get("js_render", True))
             wait_ms = p.get("wait_ms")
-            wait_seconds = int(wait_ms / 1000) if isinstance(wait_ms, (int, float)) else None
+            wait = int(wait_ms) if isinstance(wait_ms, (int, float)) else None
             country = p.get("country")
             # Validate block_resources (allowed: script, image, video)
             block_resources_raw = p.get("block_resources")
@@ -809,7 +809,7 @@ def register(mcp: FastMCP) -> None:
                         output_format=fetch_format,
                         country=country,
                         block_resources=block_resources,
-                        wait=wait_seconds,
+                        wait=wait,
                         wait_for=wait_for,
                         **extra_params,
                     )
@@ -884,7 +884,7 @@ def register(mcp: FastMCP) -> None:
                 fetch_format = "html" if fmt in {"markdown", "md"} else fmt
                 js_render = bool(r.get("js_render", True))
                 wait_ms = r.get("wait_ms")
-                wait_seconds = int(wait_ms / 1000) if isinstance(wait_ms, (int, float)) else None
+                wait = int(wait_ms) if isinstance(wait_ms, (int, float)) else None
                 # Per-request params normalization to match unlocker.fetch
                 country = r.get("country")
 
@@ -1022,7 +1022,7 @@ def register(mcp: FastMCP) -> None:
                                 output_format=fetch_format,
                                 country=country,
                                 block_resources=block_resources,
-                                wait=wait_seconds,
+                                wait=wait,
                                 wait_for=wait_for,
                                 **extra_params,
                             )
