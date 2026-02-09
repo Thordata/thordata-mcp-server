@@ -6,10 +6,20 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1
 
-COPY . .
+# Install Playwright dependencies
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
 
-# Increase pip network timeout a bit to be robust to slow connections when building image
-RUN pip install --no-cache-dir --default-timeout=120 .
+# Copy requirements first for better caching
+COPY pyproject.toml .
+RUN pip install --no-cache-dir --default-timeout=120 . && \
+    playwright install chromium && \
+    playwright install-deps chromium
+
+# Copy application code
+COPY . .
 
 EXPOSE 8000
 

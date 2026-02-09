@@ -85,15 +85,17 @@ def register(mcp: FastMCP) -> None:
         client = await ServerContext.get_client()
 
         async def _check_serp() -> dict[str, Any]:
-            from thordata.types import SerpRequest
+            from thordata import Engine, SerpRequest
 
-            req = SerpRequest(query="thordata", engine="google", num=3, output_format="light_json")
+            req = SerpRequest(query="thordata", engine=Engine.GOOGLE, num=3, output_format="light_json")
+            # Use client's serp_search_advanced method
             data = await client.serp_search_advanced(req)
             organic = data.get("organic") if isinstance(data, dict) else None
             return {"has_organic": isinstance(organic, list) and len(organic) > 0, "organic_count": len(organic) if isinstance(organic, list) else None}
 
         async def _check_unlocker() -> dict[str, Any]:
-            html = await client.universal_scrape(url="https://example.com", js_render=True, output_format="html")
+            # Use new namespace API
+            html = await client.universal.scrape_async(url="https://example.com", js_render=True, output_format="html")
             s = html if isinstance(html, str) else str(html)
             return {"html_len": len(s), "contains_example_domain": "Example Domain" in s}
 

@@ -4,16 +4,28 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thordata-mcp-server"
-version = "0.5.0"
-description = "Official MCP Server for Thordata."
+version = "0.6.0"
+description = "Official MCP Server for Thordata - Give your AI Agents real-time web scraping superpowers."
 authors = [{name = "Thordata Developer Team", email = "support@thordata.com"}]
 readme = "README.md"
 requires-python = ">=3.10"
-license = "MIT"
+license = {text = "MIT"}
+keywords = ["mcp", "web-scraping", "ai", "llm", "thordata", "serp", "browser-automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+]
 dependencies = [
     "mcp[cli]>=1.0.0",
     "sse-starlette>=1.6.1",
-    "thordata-sdk>=1.7.0",
+    "thordata-sdk>=1.8.4",
     "pydantic-settings",
     "markdownify",
     "html2text",

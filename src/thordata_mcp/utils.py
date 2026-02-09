@@ -15,6 +15,11 @@ from thordata import (
     ThordataConfigError,
     ThordataNetworkError,
 )
+from thordata.constants import (
+    APIErrorCode,
+    ErrorMessage,
+    HTTPStatus,
+)
 
 logger = logging.getLogger("thordata_mcp")
 
@@ -189,6 +194,12 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
             msg = getattr(e, "message", str(e))
             payload = getattr(e, "payload", None)
             code = getattr(e, "code", None)
+            # Extract request_id from exception (new in SDK 1.8.4)
+            request_id = getattr(e, "request_id", None)
+            status_code = getattr(e, "status_code", None)
+            url = getattr(e, "url", None)
+            method = getattr(e, "method", None)
+            
             # Try to normalize common backend codes/messages for better UX
             error_type = "api_error"
             norm_code = "E2001"
@@ -200,8 +211,12 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
                     msg = payload["error"]
                 if isinstance(payload.get("message"), str) and not msg:
                     msg = payload["message"]
-            # Heuristics for frequent categories
-            if "captcha" in msg_l or "403" in msg_l:
+                # Extract request_id from payload if not in exception
+                if not request_id:
+                    request_id = payload.get("request_id") or payload.get("requestId")
+            
+            # Heuristics for frequent categories (using SDK constants for status codes)
+            if "captcha" in msg_l or str(HTTPStatus.FORBIDDEN) in msg_l:
                 error_type = "blocked"
                 norm_code = "E2101"
             elif "sign authentication failed" in msg_l or "authentication failed" in msg_l or "invalid signature" in msg_l:
@@ -210,13 +225,13 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
             elif "not collected" in msg_l or "failed to parse" in msg_l:
                 error_type = "parse_failed"
                 norm_code = "E2102"
-            elif "not exist" in msg_l or "404" in msg_l:
+            elif "not exist" in msg_l or str(HTTPStatus.NOT_FOUND) in msg_l:
                 error_type = "not_found"
                 norm_code = "E2104"
-            elif "504" in msg_l or "gateway timeout" in msg_l:
+            elif str(HTTPStatus.GATEWAY_TIMEOUT) in msg_l or "gateway timeout" in msg_l:
                 error_type = "upstream_timeout"
                 norm_code = "E2105"
-            elif "500" in msg_l or "internal server error" in msg_l:
+            elif str(HTTPStatus.INTERNAL_SERVER_ERROR) in msg_l or "internal server error" in msg_l:
                 error_type = "upstream_internal_error"
                 norm_code = "E2106"
             elif "subtitles_error" in msg_l or "unable to download api page" in msg_l:
@@ -224,20 +239,35 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
                 norm_code = "E2107"
 
             # Attach richer diagnostics without breaking existing callers
-            url = None
+            if not url:
             if "url" in kwargs:
                 url = kwargs.get("url")
             elif "params" in kwargs and isinstance(kwargs.get("params"), dict):
                 url = kwargs["params"].get("url")
 
             diagnostic = diagnose_scraping_error(e, url=url)
+            # Enhance diagnostic with request context from exception
+            if request_id:
+                diagnostic["request_id"] = request_id
+            if status_code:
+                diagnostic["status_code"] = status_code
+            if method:
+                diagnostic["method"] = method
+            
             return error_response(
                 tool=func.__name__,
                 input={k: v for k, v in kwargs.items() if k != "ctx"},
                 error_type=error_type,
                 code=norm_code,
                 message=msg,
-                details={"code": code, "payload": payload, "diagnostic": diagnostic},
+                details={
+                    "code": code,
+                    "status_code": status_code,
+                    "payload": payload,
+                    "diagnostic": diagnostic,
+                    "request_id": request_id,  # Include request_id in details for debugging
+                },
+                request_id=request_id,  # Also include in top-level response
             )
         except ThordataNetworkError as e:
             err_str = str(e)

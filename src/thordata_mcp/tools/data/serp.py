@@ -4,10 +4,10 @@ import asyncio
 from typing import Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP
-from thordata import AsyncThordataClient
-from thordata.types import Engine, SerpRequest
+from thordata import Engine, SerpRequest
+from thordata.enums import OutputFormat
 
-from ...config import settings
+from ...context import ServerContext
 from ...utils import handle_mcp_errors, ok_response, safe_ctx_info
 
 
@@ -21,6 +21,17 @@ def register(mcp: FastMCP) -> None:
         *,
         num: int = 10,
         output_format: str = "json",
+        engine: str = "google",
+        ai_overview: bool = False,
+        start: int = 0,
+        country: str | None = None,
+        language: str | None = None,
+        device: str | None = None,
+        render_js: bool | None = None,
+        no_cache: bool | None = None,
+        search_type: str | None = None,
+        google_domain: str | None = None,
+        location: str | None = None,
         ctx: Optional[Context] = None,
     ) -> dict[str, Any]:
         """Run a SERP query and return results.
@@ -28,17 +39,85 @@ def register(mcp: FastMCP) -> None:
         Args:
             query: Search query string
             num: Number of results (default: 10)
-            output_format: Output format - "json" (structured JSON) or "html" (raw HTML)
-                           Note: SDK supports "json", "html", or "both" (returns both formats)
+            output_format: Output format - "json" (structured JSON), "html" (raw HTML), 
+                           "light_json" (minimal JSON), or "both" (returns both formats)
+            engine: Search engine (default: "google"). Supports google, bing, yandex, etc.
+            ai_overview: Enable AI Overview for Google search (default: False, only for google engine)
+            start: Starting position for results (default: 0)
+            country: Country code for geolocation (e.g., "us", "jp")
+            language: Language code (e.g., "en", "ja")
+            device: Device type ("desktop", "mobile", "tablet")
+            render_js: Enable JavaScript rendering
+            no_cache: Disable cache
+            search_type: Search type filter ("images", "news", "videos", "shopping")
+            google_domain: Google domain (e.g., "google.com", "google.co.jp")
+            location: Location string for local search
         """
-        await safe_ctx_info(ctx, f"SERP search query={query!r} num={num} format={output_format}")
+        await safe_ctx_info(ctx, f"SERP search query={query!r} num={num} format={output_format} engine={engine}")
 
-        async with AsyncThordataClient(scraper_token=settings.THORDATA_SCRAPER_TOKEN) as client:
-            req = SerpRequest(query=query, engine=Engine.GOOGLE, num=num, output_format=output_format)
+        client = await ServerContext.get_client()
+        
+        # Normalize engine enum
+        engine_enum = Engine.GOOGLE
+        if engine.lower() == "bing":
+            engine_enum = Engine.BING
+        elif engine.lower() == "yandex":
+            engine_enum = Engine.YANDEX
+        elif engine.lower() != "google":
+            # Try to match by name (case-insensitive)
+            try:
+                engine_enum = Engine[engine.upper()]
+            except (KeyError, AttributeError):
+                engine_enum = Engine.GOOGLE
+        
+        # Validate ai_overview (only for Google)
+        if ai_overview and engine_enum != Engine.GOOGLE:
+            return {
+                "ok": False,
+                "error": {
+                    "type": "validation_error",
+                    "message": "ai_overview is only supported for Google engine",
+                },
+            }
+        
+        req = SerpRequest(
+            query=query, 
+            engine=engine_enum, 
+            num=num,
+            start=start,
+            output_format=output_format,
+            country=country,
+            language=language,
+            device=device,
+            render_js=render_js,
+            no_cache=no_cache,
+            search_type=search_type,
+            google_domain=google_domain,
+            location=location,
+            ai_overview=ai_overview if engine_enum == Engine.GOOGLE else None,
+        )
+        
+        # Use client's serp_search_advanced method
             data = await client.serp_search_advanced(req)
+        
             return ok_response(
                 tool="serp.search",
-                input={"query": query, "num": num, "output_format": output_format},
+            input={
+                "query": query,
+                "num": num,
+                "start": start,
+                "output_format": output_format,
+                "engine": engine,
+                "ai_overview": ai_overview,
+                "country": country,
+                "language": language,
+                "device": device,
+                "render_js": render_js,
+                "no_cache": no_cache,
+                "search_type": search_type,
+                "google_domain": google_domain,
+                "location": location,
+            },
                 output=data,
             )
 
@@ -58,8 +137,7 @@ def register(mcp: FastMCP) -> None:
             concurrency = 20
 
         sem = asyncio.Semaphore(concurrency)
-
-        async with AsyncThordataClient(scraper_token=settings.THORDATA_SCRAPER_TOKEN) as client:
+        client = await ServerContext.get_client()
 
             async def _one(i: int, r: dict[str, Any]) -> dict[str, Any]:
                 query = str(r.get("query", ""))
@@ -70,14 +148,38 @@ def register(mcp: FastMCP) -> None:
                         "error": {"type": "validation_error", "message": "Missing query"},
                     }
                 num = int(r.get("num", 10))
-                engine = r.get("engine", Engine.GOOGLE)
+            engine_str = str(r.get("engine", "google")).lower()
+            ai_overview = bool(r.get("ai_overview", False))
+            
+            # Normalize engine enum
+            engine_enum = Engine.GOOGLE
+            if engine_str == "bing":
+                engine_enum = Engine.BING
+            elif engine_str == "yandex":
+                engine_enum = Engine.YANDEX
+            elif engine_str != "google":
+                try:
+                    engine_enum = Engine[engine_str.upper()]
+                except (KeyError, AttributeError):
+                    engine_enum = Engine.GOOGLE
+            
+            # Validate ai_overview
+            if ai_overview and engine_enum != Engine.GOOGLE:
+                return {
+                    "index": i,
+                    "ok": False,
+                    "error": {"type": "validation_error", "message": "ai_overview only supported for Google"},
+                }
+            
                 async with sem:
                     req = SerpRequest(
                         query=query,
-                        engine=engine,
+                    engine=engine_enum,
                         num=num,
                         output_format=output_format,
+                    ai_overview=ai_overview if engine_enum == Engine.GOOGLE else None,
                     )
+                # Use client's serp_search_advanced method
                     data = await client.serp_search_advanced(req)
                     return {"index": i, "ok": True, "query": query, "output": data}
 

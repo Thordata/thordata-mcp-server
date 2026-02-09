@@ -837,6 +837,7 @@ def register(mcp: FastMCP) -> None:
             kgmid=kgmid,
             extra_params=extras,
         )
+        # Use client's serp_search_advanced method
         data = await client.serp_search_advanced(req)
         output: Any = data
         if fmt in {"light_json", "light"}:
@@ -930,7 +931,8 @@ def register(mcp: FastMCP) -> None:
                     kgmid=kgmid,
                     extra_params=extra_params,
                 )
-                data = await client.serp_search_advanced(req)
+                # Use new namespace API
+                data = await client.serp.search_advanced(req)
                 out: Any = data
                 if fmt in {"light_json", "light"}:
                     out = _to_light_json(data)
@@ -969,14 +971,15 @@ def register(mcp: FastMCP) -> None:
         # markdown is a presentation format; fetch html then convert
         fetch_format = "html" if fmt in {"markdown", "md"} else fmt
 
-        data = await client.universal_scrape(
+        # Use new namespace API
+        data = await client.universal.scrape_async(
             url=url,
             js_render=js_render,
-            output_format=fetch_format,
             country=country,
-            block_resources=block_resources,
-            wait=wait,
             wait_for=wait_for,
+            wait_time=wait,
+            output_format=fetch_format,
+            block_resources=block_resources,
             **kwargs,
         )
 
@@ -1072,14 +1075,15 @@ def register(mcp: FastMCP) -> None:
 
             async with sem:
                 try:
-                    data = await client.universal_scrape(
+                    # Use new namespace API
+                    data = await client.universal.scrape_async(
                         url=url,
                         js_render=js_render,
-                        output_format=fetch_format,
                         country=country,
-                        block_resources=block_resources,
-                        wait=wait,
                         wait_for=wait_for,
+                        wait_time=wait,
+                        output_format=fetch_format,
+                        block_resources=block_resources,
                         **extra_params,
                     )
                 except (ThordataNetworkError, ThordataAPIError) as e:
@@ -1422,7 +1426,8 @@ def register(mcp: FastMCP) -> None:
                     kgmid=None,
                     extra_params={},
                 )
-                data = await client.serp_search_advanced(req)
+                # Use new namespace API
+                data = await client.serp.search_advanced(req)
                 return ok_response(
                     tool="smart_scrape",
                     input={"url": url, "prefer_structured": prefer_structured, "preview": preview},
@@ -1580,7 +1585,8 @@ def register(mcp: FastMCP) -> None:
         try:
             # Use a longer timeout for Unlocker (up to max_wait_seconds)
             unlocker_timeout = min(max_wait_seconds, 120)  # Cap at 120 seconds for Unlocker
-            data = await client.universal_scrape(url=url, js_render=True, output_format="html")
+            # Use new namespace API
+            data = await client.universal.scrape_async(url=url, js_render=True, output_format="html")
             html = str(data) if not isinstance(data, str) else data
             # Empty HTML: likely blocked by strong JS/anti-bot/login wall, mark as error page for caller decision
             if not html or not html.strip() or len(html.strip()) < 100:

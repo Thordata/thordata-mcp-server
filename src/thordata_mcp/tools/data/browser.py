@@ -4,9 +4,7 @@ import base64
 from typing import Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP, Image
-from thordata import AsyncThordataClient
 
-from ...config import settings
 from ...context import ServerContext
 from ...utils import (
     handle_mcp_errors,
@@ -175,13 +173,14 @@ def register(mcp: FastMCP) -> None:
         if ctx:
             await ctx.info(f"Screenshot url={url!r} js_render={js_render} wait_ms={wait_ms}")
 
-        async with AsyncThordataClient(scraper_token=settings.THORDATA_SCRAPER_TOKEN) as client:
-            png_bytes = await client.universal_scrape(
+        client = await ServerContext.get_client()
+        # Use new namespace API
+        png_bytes = await client.universal.scrape_async(
                 url=url,
                 js_render=js_render,
                 output_format="png",
-                wait=int(wait_ms) if wait_ms is not None else None,
-                extra_params={"device_scale": device_scale},
+            wait_time=int(wait_ms) if wait_ms is not None else None,
+            device_scale=device_scale,
             )
             # Ensure bytes, then base64
             if isinstance(png_bytes, str):
