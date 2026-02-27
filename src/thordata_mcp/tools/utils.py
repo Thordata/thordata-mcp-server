@@ -8,8 +8,6 @@ import pkgutil
 from typing import Any
 
 from thordata.tools import ToolRequest
-
-
 def iter_tool_request_types(max_depth: int = 6) -> list[type[ToolRequest]]:
     """Discover all ToolRequest dataclasses in thordata.tools.
     
@@ -62,10 +60,10 @@ def iter_tool_request_types(max_depth: int = 6) -> list[type[ToolRequest]]:
 
 def tool_key(t: type[ToolRequest]) -> str:
     """Generate tool key from ToolRequest class.
-    
+
     Args:
         t: ToolRequest subclass
-        
+
     Returns:
         Tool key in format: module.qualname
     """

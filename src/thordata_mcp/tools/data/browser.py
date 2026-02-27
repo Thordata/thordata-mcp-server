@@ -176,30 +176,30 @@ def register(mcp: FastMCP) -> None:
         client = await ServerContext.get_client()
         # Use new namespace API
         png_bytes = await client.universal.scrape_async(
-                url=url,
-                js_render=js_render,
-                output_format="png",
+            url=url,
+            js_render=js_render,
+            output_format="png",
             wait_time=int(wait_ms) if wait_ms is not None else None,
             device_scale=device_scale,
-            )
-            # Ensure bytes, then base64
-            if isinstance(png_bytes, str):
-                png_bytes = png_bytes.encode()
-            b64 = base64.b64encode(png_bytes).decode()
-            b64_trunc = truncate_content(b64, PNG_TRUNCATE)
-            return ok_response(
-                tool="browser.screenshot",
-                input={
-                    "url": url,
-                    "js_render": js_render,
-                    "wait_ms": wait_ms,
-                    "device_scale": device_scale,
-                },
-                output={
-                    "png_base64": b64_trunc,
-                    "truncated": len(b64) > len(b64_trunc),
-                },
-            )
+        )
+        # Ensure bytes, then base64
+        if isinstance(png_bytes, str):
+            png_bytes = png_bytes.encode()
+        b64 = base64.b64encode(png_bytes).decode()
+        b64_trunc = truncate_content(b64, PNG_TRUNCATE)
+        return ok_response(
+            tool="browser.screenshot",
+            input={
+                "url": url,
+                "js_render": js_render,
+                "wait_ms": wait_ms,
+                "device_scale": device_scale,
+            },
+            output={
+                "png_base64": b64_trunc,
+                "truncated": len(b64) > len(b64_trunc),
+            },
+        )
 
     # ---------------------------------------------------------------------
     # Browser Automation (Playwright-based, domain-scoped sessions)

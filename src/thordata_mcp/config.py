@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     """Environment-driven configuration for the MCP server."""
 
-    # MCP tool exposure mode (BrightData-like)
+    # MCP tool exposure mode
     # - rapid: minimal core tools
     # - pro: all tools
     # - custom: enable by THORDATA_GROUPS and THORDATA_TOOLS

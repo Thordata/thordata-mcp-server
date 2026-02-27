@@ -2006,14 +2006,6 @@ def register(mcp: FastMCP) -> None:
     # -------------------------
     # WEB SCRAPER HELP (UX helper)
     # -------------------------
-    if _allow("web_scraper.help"):
-        mcp.tool(
-            name="web_scraper.help",
-            description=(
-                "Explain how to use web_scraper actions (catalog/example/run/batch_run/raw_run/...). "
-                "Use this as a quick reference for LLMs and users."
-            ),
-        )(handle_mcp_errors(web_scraper_help))
     async def web_scraper_help() -> dict[str, Any]:
         """Return a high-level usage guide for web_scraper.* actions."""
         guide = {
@@ -2090,6 +2082,15 @@ def register(mcp: FastMCP) -> None:
             ],
         }
         return ok_response(tool="web_scraper.help", input={}, output=guide)
+
+    if _allow("web_scraper.help"):
+        mcp.tool(
+            name="web_scraper.help",
+            description=(
+                "Explain how to use web_scraper actions (catalog/example/run/batch_run/raw_run/...). "
+                "Use this as a quick reference for LLMs and users."
+            ),
+        )(handle_mcp_errors(web_scraper_help))
 
     # -------------------------
     # BROWSER SCRAPER (compact)
@@ -2530,7 +2531,10 @@ def register(mcp: FastMCP) -> None:
                 input={"url": url, "prefer_structured": prefer_structured, "preview": preview},
                 error_type="timeout_error",
                 code="E2003",
-                message=f"Unlocker request timed out. The page may be slow to load or blocked.",
+                message=(
+                    "Unlocker request timed out. The page may be slow to load or "
+                    "blocked."
+                ),
                 details={
                     "selected_tool": selected_tool,
                     "candidates": [c[0] for c in candidates],
@@ -2545,7 +2549,10 @@ def register(mcp: FastMCP) -> None:
             if "504" in error_msg or "Gateway Timeout" in error_msg:
                 error_type = "timeout_error"
                 error_code = "E2003"
-                error_message = f"Unlocker request timed out (504 Gateway Timeout). The page may be slow to load or blocked."
+                error_message = (
+                    "Unlocker request timed out (504 Gateway Timeout). "
+                    "The page may be slow to load or blocked."
+                )
             elif "timeout" in error_msg.lower():
                 error_type = "timeout_error"
                 error_code = "E2003"
@@ -2553,7 +2560,10 @@ def register(mcp: FastMCP) -> None:
             else:
                 error_type = "network_error"
                 error_code = "E2002"
-                error_message = f"Both Web Scraper and Unlocker failed. Last error: {error_msg}"
+                error_message = (
+                    "Both Web Scraper and Unlocker failed. Last error: "
+                    f"{error_msg}"
+                )
             return error_response(
                 tool="smart_scrape",
                 input={"url": url, "prefer_structured": prefer_structured, "preview": preview},

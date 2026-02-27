@@ -40,17 +40,41 @@ def get_error_suggestion(error_type: str, url: Optional[str] = None) -> str:
         Helpful suggestion string
     """
     suggestions = {
-        "timeout": "The request timed out. Try enabling JS rendering or check if the site is accessible.",
-        "blocked": "The request was blocked (403/CAPTCHA). The site may have anti-bot protection.",
-        "parse_failed": "Failed to parse the response. The site structure may have changed.",
+        "timeout": (
+            "The request timed out. Try enabling JS rendering or check if the "
+            "site is accessible."
+        ),
+        "blocked": (
+            "The request was blocked (403/CAPTCHA). The site may have anti-bot "
+            "protection."
+        ),
+        "parse_failed": (
+            "Failed to parse the response. The site structure may have changed."
+        ),
         "not_found": "The requested resource was not found (404).",
         "upstream_timeout": "The upstream service timed out (504). Try again later.",
-        "upstream_internal_error": "The upstream service encountered an error (500). Try again later.",
-        "network_error": "Network error occurred. Check your internet connection and Thordata service status.",
+        "upstream_internal_error": (
+            "The upstream service encountered an error (500). Try again later."
+        ),
+        "network_error": (
+            "Network error occurred. Check your internet connection and "
+            "Thordata service status."
+        ),
         "config_error": "Configuration error. Check your API credentials in .env file.",
-        "auth_error": "Authentication failed. Verify THORDATA_PUBLIC_TOKEN/THORDATA_PUBLIC_KEY/THORDATA_SCRAPER_TOKEN in .env match your Dashboard credentials.",
-        "validation_error": "Parameter validation failed. Ensure 'params' is a dictionary object, not a string. Example: params={'url': 'https://example.com'}",
-        "json_error": "Invalid JSON in params. Use dictionary format: params={'url': 'https://example.com'} or valid JSON string: params='{\"url\":\"https://example.com\"}'",
+        "auth_error": (
+            "Authentication failed. Verify "
+            "THORDATA_PUBLIC_TOKEN/THORDATA_PUBLIC_KEY/THORDATA_SCRAPER_TOKEN "
+            "in .env match your Dashboard credentials."
+        ),
+        "validation_error": (
+            "Parameter validation failed. Ensure 'params' is a dictionary "
+            "object, not a string. Example: params={'url': 'https://example.com'}"
+        ),
+        "json_error": (
+            "Invalid JSON in params. Use dictionary format: "
+            "params={'url': 'https://example.com'} or valid JSON string: "
+            "params='{\"url\":\"https://example.com\"}'"
+        ),
     }
 
     suggestion = suggestions.get(error_type, "An unexpected error occurred.")
@@ -93,10 +117,17 @@ def diagnose_scraping_error(error: Exception, url: Optional[str] = None) -> dict
         if isinstance(payload, dict):
             payload_s = " ".join(str(v) for v in payload.values())
         combined = f"{msg} {payload_s}".lower()
-        if "sign authentication failed" in combined or "authentication failed" in combined or "invalid signature" in combined:
+        if (
+            "sign authentication failed" in combined
+            or "authentication failed" in combined
+            or "invalid signature" in combined
+        ):
             error_info["suggestion"] = get_error_suggestion("auth_error", url)
         else:
-            error_info["suggestion"] = get_error_suggestion("upstream_internal_error", url)
+            error_info["suggestion"] = get_error_suggestion(
+                "upstream_internal_error",
+                url,
+            )
     elif isinstance(error, ThordataNetworkError):
         error_info["suggestion"] = get_error_suggestion("network_error", url)
     elif isinstance(error, ThordataConfigError):
@@ -219,7 +250,11 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
             if "captcha" in msg_l or str(HTTPStatus.FORBIDDEN) in msg_l:
                 error_type = "blocked"
                 norm_code = "E2101"
-            elif "sign authentication failed" in msg_l or "authentication failed" in msg_l or "invalid signature" in msg_l:
+            elif (
+                "sign authentication failed" in msg_l
+                or "authentication failed" in msg_l
+                or "invalid signature" in msg_l
+            ):
                 error_type = "auth_error"
                 norm_code = "E1002"
             elif "not collected" in msg_l or "failed to parse" in msg_l:
@@ -231,19 +266,25 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
             elif str(HTTPStatus.GATEWAY_TIMEOUT) in msg_l or "gateway timeout" in msg_l:
                 error_type = "upstream_timeout"
                 norm_code = "E2105"
-            elif str(HTTPStatus.INTERNAL_SERVER_ERROR) in msg_l or "internal server error" in msg_l:
+            elif (
+                str(HTTPStatus.INTERNAL_SERVER_ERROR) in msg_l
+                or "internal server error" in msg_l
+            ):
                 error_type = "upstream_internal_error"
                 norm_code = "E2106"
-            elif "subtitles_error" in msg_l or "unable to download api page" in msg_l:
+            elif (
+                "subtitles_error" in msg_l
+                or "unable to download api page" in msg_l
+            ):
                 error_type = "media_backend_error"
                 norm_code = "E2107"
 
             # Attach richer diagnostics without breaking existing callers
             if not url:
-            if "url" in kwargs:
-                url = kwargs.get("url")
-            elif "params" in kwargs and isinstance(kwargs.get("params"), dict):
-                url = kwargs["params"].get("url")
+                if "url" in kwargs:
+                    url = kwargs.get("url")
+                elif "params" in kwargs and isinstance(kwargs.get("params"), dict):
+                    url = kwargs["params"].get("url")
 
             diagnostic = diagnose_scraping_error(e, url=url)
             # Enhance diagnostic with request context from exception
@@ -253,7 +294,7 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
                 diagnostic["status_code"] = status_code
             if method:
                 diagnostic["method"] = method
-            
+
             return error_response(
                 tool=func.__name__,
                 input={k: v for k, v in kwargs.items() if k != "ctx"},
@@ -265,9 +306,11 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
                     "status_code": status_code,
                     "payload": payload,
                     "diagnostic": diagnostic,
-                    "request_id": request_id,  # Include request_id in details for debugging
+                    # Include request_id in details for debugging
+                    "request_id": request_id,
                 },
-                request_id=request_id,  # Also include in top-level response
+                # Also include in top-level response
+                request_id=request_id,
             )
         except ThordataNetworkError as e:
             err_str = str(e)
@@ -278,7 +321,9 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
             else:
                 error_code = "E2002"
                 err_type = "network_error"
-                msg = "Network error: could not reach Thordata services."
+                msg = (
+                    "Network error: could not reach Thordata services."
+                )
 
             url = None
             if "url" in kwargs:
@@ -293,11 +338,20 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
                 error_type=err_type,
                 code=error_code,
                 message=msg,
-                details={"raw_error": err_str, "diagnostic": diagnostic},
+                details={
+                    "raw_error": err_str,
+                    "diagnostic": diagnostic,
+                },
             )
         except Exception as e:  # pragma: no cover
-            # Use logger.error instead of logger.exception to avoid rich traceback issues
-            logger.error("Unexpected error in %s: %s", func.__name__, str(e), exc_info=False)
+            # Use logger.error instead of logger.exception to avoid rich
+            # traceback issues
+            logger.error(
+                "Unexpected error in %s: %s",
+                func.__name__,
+                str(e),
+                exc_info=False,
+            )
             return error_response(
                 tool=func.__name__,
                 input={k: v for k, v in kwargs.items() if k != "ctx"},
@@ -314,10 +368,7 @@ def handle_mcp_errors(func: Callable) -> Callable:  # noqa: D401
 # ---------------------------------------------------------------------------
 
 def _strip_large_data_urls(html: str, *, max_keep_chars: int = 256) -> str:
-    """Remove large inlined data: URLs (base64 fonts/images) to reduce token bloat.
-
-    Keeps small data URLs (<= max_keep_chars) to avoid breaking tiny icons.
-    """
+    """Remove large inlined data URLs to reduce token bloat."""
     import re
 
     def _repl(m: re.Match[str]) -> str:
@@ -331,13 +382,10 @@ def _strip_large_data_urls(html: str, *, max_keep_chars: int = 256) -> str:
 
 
 def _extract_readable_html(html: str) -> str:
-    """Best-effort extraction of main readable content.
-
-    Prefer <main> or <article>. Fall back to full document if not found.
-    """
+    """Best-effort extraction of main readable content."""
     import re
 
-    # Very lightweight heuristics (no extra deps): keep the largest <main>/<article> block.
+    # Lightweight heuristics: keep the largest <main>/<article> block.
     candidates: list[str] = []
     for tag in ("main", "article"):
         pattern = re.compile(rf"<{tag}[^>]*>([\\s\\S]*?)</{tag}>", re.IGNORECASE)
@@ -355,7 +403,11 @@ def html_to_markdown_clean(html: str) -> str:
     try:
         html = _strip_large_data_urls(html)
         html = _extract_readable_html(html)
-        text = md(html, heading_style="ATX", strip=["script", "style", "noscript", "nav", "footer", "iframe", "svg"])
+        text = md(
+            html,
+            heading_style="ATX",
+            strip=["script", "style", "noscript", "nav", "footer", "iframe", "svg"],
+        )
         lines = [line.rstrip() for line in text.splitlines()]
         return "\n".join(line for line in lines if line)
     except Exception:
@@ -367,19 +419,23 @@ def html_to_markdown_clean(html: str) -> str:
 def truncate_content(content: str, max_length: int = 20_000) -> str:
     if len(content) <= max_length:
         return content
-    return content[:max_length] + f"\n\n... [Content Truncated, original length: {len(content)} chars]"
+    return (
+        content[:max_length]
+        + f"\n\n... [Content Truncated, original length: {len(content)} chars]"
+    )
 
 
 # ---------------------------------------------------------------------------
 # Download URL helpers
 # ---------------------------------------------------------------------------
 
-def enrich_download_url(download_url: str, *, task_id: str | None = None, file_type: str | None = None) -> str:
-    """Ensure returned download URLs are directly usable in a browser.
-
-    Some SDK / backend paths may return a URL missing required query params such as
-    `api_key` and `plat`, leading to {"error":"Missing necessary parameters."}.
-    """
+def enrich_download_url(
+    download_url: str,
+    *,
+    task_id: str | None = None,
+    file_type: str | None = None,
+) -> str:
+    """Ensure returned download URLs are directly usable in a browser."""
     try:
         from .config import settings
     except Exception:  # pragma: no cover
@@ -387,7 +443,11 @@ def enrich_download_url(download_url: str, *, task_id: str | None = None, file_t
 
     token = getattr(settings, "THORDATA_SCRAPER_TOKEN", None) if settings else None
     plat = getattr(settings, "THORDATA_DOWNLOAD_PLAT", "1") if settings else "1"
-    base = getattr(settings, "THORDATA_DOWNLOAD_BASE_URL", "https://scraperapi.thordata.com/download") if settings else "https://scraperapi.thordata.com/download"
+    base = getattr(
+        settings,
+        "THORDATA_DOWNLOAD_BASE_URL",
+        "https://scraperapi.thordata.com/download",
+    ) if settings else "https://scraperapi.thordata.com/download"
 
     # If we can't enrich (no token), return as-is.
     if not token:
@@ -415,8 +475,14 @@ def enrich_download_url(download_url: str, *, task_id: str | None = None, file_t
 
     new_query = urlencode(qs, doseq=True)
     new_parsed = parsed._replace(query=new_query)
-    # If original URL had a different host/path but is a valid absolute URL, preserve them.
-    if parsed.scheme and parsed.netloc and urlparse(download_url).scheme and urlparse(download_url).netloc:
+    # If original URL had a different host/path but is a valid absolute URL,
+    # preserve them.
+    if (
+        parsed.scheme
+        and parsed.netloc
+        and urlparse(download_url).scheme
+        and urlparse(download_url).netloc
+    ):
         orig = urlparse(download_url)
         new_parsed = orig._replace(query=new_query)
 

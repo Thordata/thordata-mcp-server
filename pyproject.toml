@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "thordata-mcp-server"
-version = "0.6.0"
+version = "0.6.1"
 description = "Official MCP Server for Thordata - Give your AI Agents real-time web scraping superpowers."
 authors = [{name = "Thordata Developer Team", email = "support@thordata.com"}]
 readme = "README.md"
@@ -25,7 +25,7 @@ classifiers = [
 dependencies = [
     "mcp[cli]>=1.0.0",
     "sse-starlette>=1.6.1",
-    "thordata-sdk>=1.8.4",
+    "thordata-sdk>=1.8.5",
     "pydantic-settings",
     "markdownify",
     "html2text",

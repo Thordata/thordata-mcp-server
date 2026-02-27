@@ -81,8 +81,8 @@ def register(mcp: FastMCP) -> None:
             }
         
         req = SerpRequest(
-            query=query, 
-            engine=engine_enum, 
+            query=query,
+            engine=engine_enum,
             num=num,
             start=start,
             output_format=output_format,
@@ -94,14 +94,13 @@ def register(mcp: FastMCP) -> None:
             search_type=search_type,
             google_domain=google_domain,
             location=location,
-            ai_overview=ai_overview if engine_enum == Engine.GOOGLE else None,
+            ai_overview=ai_overview if engine_enum == Engine.GOOGLE else False,
         )
-        
-        # Use client's serp_search_advanced method
-            data = await client.serp_search_advanced(req)
-        
-            return ok_response(
-                tool="serp.search",
+
+        data = await client.serp_search_advanced(req)
+
+        return ok_response(
+            tool="serp.search",
             input={
                 "query": query,
                 "num": num,
@@ -118,8 +117,8 @@ def register(mcp: FastMCP) -> None:
                 "google_domain": google_domain,
                 "location": location,
             },
-                output=data,
-            )
+            output=data,
+        )
 
     @mcp.tool(name="serp.batch_search")
     @handle_mcp_errors
@@ -139,19 +138,21 @@ def register(mcp: FastMCP) -> None:
         sem = asyncio.Semaphore(concurrency)
         client = await ServerContext.get_client()
 
-            async def _one(i: int, r: dict[str, Any]) -> dict[str, Any]:
-                query = str(r.get("query", ""))
-                if not query:
-                    return {
-                        "index": i,
-                        "ok": False,
-                        "error": {"type": "validation_error", "message": "Missing query"},
-                    }
-                num = int(r.get("num", 10))
+        async def _one(i: int, r: dict[str, Any]) -> dict[str, Any]:
+            query = str(r.get("query", ""))
+            if not query:
+                return {
+                    "index": i,
+                    "ok": False,
+                    "error": {
+                        "type": "validation_error",
+                        "message": "Missing query",
+                    },
+                }
+            num = int(r.get("num", 10))
             engine_str = str(r.get("engine", "google")).lower()
             ai_overview = bool(r.get("ai_overview", False))
-            
-            # Normalize engine enum
+
             engine_enum = Engine.GOOGLE
             if engine_str == "bing":
                 engine_enum = Engine.BING
@@ -162,32 +163,37 @@ def register(mcp: FastMCP) -> None:
                     engine_enum = Engine[engine_str.upper()]
                 except (KeyError, AttributeError):
                     engine_enum = Engine.GOOGLE
-            
-            # Validate ai_overview
+
             if ai_overview and engine_enum != Engine.GOOGLE:
                 return {
                     "index": i,
                     "ok": False,
-                    "error": {"type": "validation_error", "message": "ai_overview only supported for Google"},
+                    "error": {
+                        "type": "validation_error",
+                        "message": "ai_overview only supported for Google",
+                    },
                 }
-            
-                async with sem:
-                    req = SerpRequest(
-                        query=query,
+
+            async with sem:
+                req = SerpRequest(
+                    query=query,
                     engine=engine_enum,
-                        num=num,
-                        output_format=output_format,
-                    ai_overview=ai_overview if engine_enum == Engine.GOOGLE else None,
-                    )
-                # Use client's serp_search_advanced method
-                    data = await client.serp_search_advanced(req)
-                    return {"index": i, "ok": True, "query": query, "output": data}
+                    num=num,
+                    output_format=output_format,
+                    ai_overview=ai_overview if engine_enum == Engine.GOOGLE else False,
+                )
+                data = await client.serp_search_advanced(req)
+                return {"index": i, "ok": True, "query": query, "output": data}
 
-            await safe_ctx_info(ctx, f"SERP batch_search count={len(requests)} concurrency={concurrency}")
+        await safe_ctx_info(ctx, f"SERP batch_search count={len(requests)} concurrency={concurrency}")
 
-            results = await asyncio.gather(*[_one(i, r) for i, r in enumerate(requests)])
-            return ok_response(
-                tool="serp.batch_search",
-                input={"count": len(requests), "concurrency": concurrency, "output_format": output_format},
-                output={"results": results},
-            )
+        results = await asyncio.gather(*[_one(i, r) for i, r in enumerate(requests)])
+        return ok_response(
+            tool="serp.batch_search",
+            input={
+                "count": len(requests),
+                "concurrency": concurrency,
+                "output_format": output_format,
+            },
+            output={"results": results},
+        )
