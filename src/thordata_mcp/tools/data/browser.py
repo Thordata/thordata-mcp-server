@@ -5,12 +5,10 @@ from typing import Any, Optional
 
 from mcp.server.fastmcp import Context, FastMCP, Image
 
+from ...config import settings
 from ...context import ServerContext
-from ...utils import (
-    handle_mcp_errors,
-    ok_response,
-    truncate_content,
-)
+from ...utils import handle_mcp_errors, ok_response, truncate_content
+from thordata import AsyncThordataClient
 
 PNG_TRUNCATE = 20000  # max chars for base64 png in output
 
